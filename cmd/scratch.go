@@ -8,5 +8,13 @@ import (
 
 func main() {
 	internal.InitState()
-	slog.Info(fmt.Sprintf("state => %v", internal.State))
+	slog.Info(fmt.Sprintf("state 0 => %+v", internal.State))
+	q := internal.NewQueue(0)
+	internal.AddQueue(q)
+	slog.Info(fmt.Sprintf("state 1 => %+v", internal.State.Queues[0]))
+	d := internal.NewDownload(0)
+	internal.AddDownload(d)
+	slog.Info(fmt.Sprintf("state 2 => %+v", internal.State.Queues[0]))
+	internal.Delete(d)
+	slog.Info(fmt.Sprintf("state 3 => %+v", internal.State.Queues[0]))
 }

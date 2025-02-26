@@ -1,13 +1,13 @@
 package internal
 
 type AppState struct {
-	queues []Queue
+	Queues []*Queue
 }
 
 var State *AppState
 
 func InitState() {
 	State = &AppState{
-		queues: make([]Queue, 0, 10),
+		Queues: make([]*Queue, 0, 10),
 	}
 }
