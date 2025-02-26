@@ -9,6 +9,7 @@ type TimeInterval struct {
 	end time.Time
 }
 type Queue struct {
+	downloads []Download
 	maxSpeed float32     // In Byte
 	maxDownloadCount int
 	destination string
