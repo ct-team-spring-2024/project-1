@@ -2,12 +2,12 @@ package internal
 
 import (
 	"fmt"
-	"log"
+
 	"log/slog"
-	"reflect"
 )
 
 type DownloadStatus int
+
 const (
 	Completed DownloadStatus = iota
 	Failed
@@ -17,10 +17,10 @@ const (
 )
 
 type Download struct {
-	id int
-	url string
+	id     int
+	url    string
 	status DownloadStatus
-	queue Queue
+	queue  Queue
 }
 
 func NewDownload(id int) Download {
@@ -45,19 +45,9 @@ func AddDownload(download Download) {
 
 func Delete(download Download) {
 	//TODO: Delete the file from the system too .
-	for i, _ := range State.Queues {
-		if reflect.DeepEqual(State.Queues[i], download.queue) {
-			for j, _ := range State.Queues[i].downloads {
-				if reflect.DeepEqual(State.Queues[i].downloads[j], download) {
-					newQueue := append(State.Queues[i].downloads[:j], State.Queues[i].downloads[j+1:]...)
-					State.Queues[i].downloads = newQueue
-					return
-				}
-
-			}
-		}
-	}
-	log.Fatal("NOT DELETED")
+	i, j := findDownload(download)
+	newDownloads := append(State.Queues[i].downloads[:j], State.Queues[i].downloads[j+1:]...)
+	State.Queues[i].downloads = newDownloads
 }
 
 func pause(download Download) {
@@ -74,9 +64,9 @@ func resume(download Download) {
 
 func findDownload(download Download) (i, j int) {
 	for k, _ := range State.Queues {
-		if reflect.DeepEqual(State.Queues[k], download.queue) {
+		if State.Queues[k].id == download.queue.id {
 			for m, _ := range State.Queues[i].downloads {
-				if reflect.DeepEqual(State.Queues[i].downloads[j], download) {
+				if State.Queues[k].downloads[m].id == download.id {
 					i, j = k, m
 
 				}

@@ -8,10 +8,10 @@ import (
 
 func Test_Add(t *testing.T) {
 	InitState()
-	q := Queue{id: 0,}
+	q := Queue{id: 0}
 	AddQueue(q)
 	d := Download{
-		id: 0,
+		id:    0,
 		queue: q,
 	}
 	AddDownload(d)
@@ -26,10 +26,10 @@ func Test_Add(t *testing.T) {
 
 func Test_Delete(t *testing.T) {
 	InitState()
-	q := Queue{id: 0,}
+	q := Queue{id: 0}
 	AddQueue(q)
 	d := Download{
-		id: 0,
+		id:    0,
 		queue: q,
 	}
 	AddDownload(d)
