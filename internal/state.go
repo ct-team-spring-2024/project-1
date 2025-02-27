@@ -25,7 +25,7 @@ func checkToBeInProgress(d Download) bool {
 func findInPrpgressCandidates(state *AppState) []Download {
 	result := make([]Download, 0)
 	for _, q := range state.Queues {
-		inProgressCnt, inProgressDownloads := getInProgressDownloads(q)
+		inProgressCnt, inProgressDownloads := getInProgressDownloads(*q)
 		result = append(result, inProgressDownloads...)
 		remainingInProgress := q.maxInProgressCount - inProgressCnt
 		for _, d := range q.downloads {
