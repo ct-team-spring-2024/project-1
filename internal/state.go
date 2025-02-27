@@ -53,7 +53,14 @@ func UpdateState() {
 	for _, v := range inProgressCandidates {
 		updateDownloadStatus(v.Id, types.InProgress)
 		// pass to network
-		result := network.SyncStartDown()
+		result := network.SyncStartDownload(v)
+		switch e := result.Err; {
+		case e == nil:
+			updateDownloadStatus(v.Id, types.Completed)
+		default:
+			updateDownloadStatus(v.Id, types.Failed)
+
+		}
 	}
 
 }
@@ -64,6 +71,10 @@ func updateDownloadStatus(id int, status types.DownloadStatus) {
 				d.Status = status
 				if status == types.InProgress {
 					q.CurrentInProgressCount++
+				}
+				if status == types.Failed {
+					d.CurrentRetriesCnt++
+
 				}
 			}
 		}

@@ -17,11 +17,12 @@ const (
 )
 
 type Download struct {
-	Id     int
-	Url    string
-	Status DownloadStatus
+	Id                int
+	Url               string
+	Filename          string
+	Status            DownloadStatus
 	CurrentRetriesCnt int
-	Queue  Queue
+	Queue             Queue
 }
 
 func NewDownload(id int) Download {
