@@ -1,39 +1,18 @@
 package internal
 
 import (
-	"time"
+	"go-idm/types"
 )
 
-type TimeInterval struct {
-	start time.Time
-	end   time.Time
-}
-type Queue struct {
-	id                     int
-	downloads              []Download
-	maxInProgressCount     int
-	currentInProgressCount int
-	maxRetriesCount        int
-	destination            string
-	activeInterval         TimeInterval
-	maxBandwidth           float32 // In Byte
-}
-
-func NewQueue(id int) Queue {
-	return Queue{
-		id: 0,
-	}
-}
-
-func AddQueue(queue Queue) {
+func AddQueue(queue types.Queue) {
 	State.Queues = append(State.Queues, &queue)
 }
 
-func getInProgressDownloads(queue Queue) (int, []Download) {
+func getInProgressDownloads(queue types.Queue) (int, []types.Download) {
 	cnt := 0
-	result := make([]Download, 0)
-	for _, d := range queue.downloads {
-		if d.status == InProgress {
+	result := make([]types.Download, 0)
+	for _, d := range queue.Downloads {
+		if d.Status == types.InProgress {
 			cnt++
 			result = append(result, d)
 		}

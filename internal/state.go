@@ -1,34 +1,39 @@
 package internal
 
+import (
+	"go-idm/pkg/network"
+	"go-idm/types"
+)
+
 type AppState struct {
-	Queues []*Queue
+	Queues []*types.Queue
 }
 
 var State *AppState
 
 func InitState() {
 	State = &AppState{
-		Queues: make([]*Queue, 0, 10),
+		Queues: make([]*types.Queue, 0, 10),
 	}
 }
 
-func checkToBeInProgress(d Download) bool {
-	if d.status == Created {
+func checkToBeInProgress(d types.Download) bool {
+	if d.Status == types.Created {
 		return true
 	}
-	if d.status == Failed && d.currentRetriesCnt < d.queue.maxRetriesCount {
+	if d.Status == types.Failed && d.CurrentRetriesCnt < d.Queue.MaxRetriesCount {
 		return true
 	}
 	return false
 }
 
-func findInPrpgressCandidates(state *AppState) []Download {
-	result := make([]Download, 0)
+func findInPrpgressCandidates(state *AppState) []types.Download {
+	result := make([]types.Download, 0)
 	for _, q := range state.Queues {
 		inProgressCnt, inProgressDownloads := getInProgressDownloads(*q)
 		result = append(result, inProgressDownloads...)
-		remainingInProgress := q.maxInProgressCount - inProgressCnt
-		for _, d := range q.downloads {
+		remainingInProgress := q.MaxInProgressCount - inProgressCnt
+		for _, d := range q.Downloads {
 			if remainingInProgress == 0 {
 				break
 			}
@@ -43,22 +48,22 @@ func findInPrpgressCandidates(state *AppState) []Download {
 }
 
 func UpdateState() {
-	var inProgressCandidates []Download
+	var inProgressCandidates []types.Download
 	inProgressCandidates = findInPrpgressCandidates(State)
 	for _, v := range inProgressCandidates {
-		updateDownloadStatus(v.id, InProgress)
-		//pass to network
-
+		updateDownloadStatus(v.Id, types.InProgress)
+		// pass to network
+		result := network.SyncStartDown()
 	}
 
 }
-func updateDownloadStatus(id int, status DownloadStatus) {
+func updateDownloadStatus(id int, status types.DownloadStatus) {
 	for _, q := range State.Queues {
-		for _, d := range q.downloads {
-			if d.id == id {
-				d.status = status
-				if status == InProgress {
-					q.currentInProgressCount++
+		for _, d := range q.Downloads {
+			if d.Id == id {
+				d.Status = status
+				if status == types.InProgress {
+					q.CurrentInProgressCount++
 				}
 			}
 		}

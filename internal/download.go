@@ -2,78 +2,48 @@ package internal
 
 import (
 	"fmt"
-
+	"go-idm/types"
 	"log/slog"
 )
 
-type DownloadStatus int
-
-const (
-	Completed DownloadStatus = iota
-	Failed
-
-	// paused by the user
-	Paused
-
-	// download is in progress
-	InProgress
-
-	// created, but downloading has not started
-	Created
-)
-
-type Download struct {
-	id     int
-	url    string
-	status DownloadStatus
-	currentRetriesCnt int
-	queue  Queue
-}
-
-func NewDownload(id int) Download {
-	return Download{
-		id: id,
-	}
-}
-
-func AddDownload(download Download) {
-	queueId := download.queue.id
-	var foundQueue *Queue
+func AddDownload(download types.Download) {
+	queueId := download.Queue.Id
+	var foundQueue *types.Queue
 	for _, queue := range State.Queues {
-		if queue.id == queueId {
+		if queue.Id == queueId {
 			foundQueue = queue
 			break
 		}
 	}
 	slog.Info(fmt.Sprintf("add download => %+v", foundQueue))
-	foundQueue.downloads = append(foundQueue.downloads, download)
+	foundQueue.Downloads = append(foundQueue.Downloads, download)
 	slog.Info(fmt.Sprintf("add download => %+v", foundQueue))
 }
 
-func Delete(download Download) {
+func Delete(download types.Download) {
 	//TODO: Delete the file from the system too .
 	i, j := findDownload(download)
-	newDownloads := append(State.Queues[i].downloads[:j], State.Queues[i].downloads[j+1:]...)
-	State.Queues[i].downloads = newDownloads
+	newDownloads := append(State.Queues[i].Downloads[:j], State.Queues[i].Downloads[j+1:]...)
+	State.Queues[i].Downloads = newDownloads
 }
 
-func pause(download Download) {
+func pause(download types.Download) {
 	//TODO : add a function to tell the Network layer to stop downloading
 	i, j := findDownload(download)
-	State.Queues[i].downloads[j].status = Failed
+	State.Queues[i].Downloads[j].Status = types.Failed
 }
 
-func resume(download Download) {
+func resume(download types.Download) {
 	i, j := findDownload(download)
 	//Might need to add to downloads if status is not checked
-	State.Queues[i].downloads[j].status = InProgress
+	State.Queues[i].Downloads[j].Status = types.InProgress
 }
 
-func findDownload(download Download) (i, j int) {
+func findDownload(download types.Download) (i, j int) {
 	for k, _ := range State.Queues {
-		if State.Queues[k].id == download.queue.id {
-			for m, _ := range State.Queues[i].downloads {
-				if State.Queues[k].downloads[m].id == download.id {
+		if State.Queues[k].Id == download.Queue.Id {
+			for m, _ := range State.Queues[i].Downloads {
+				if State.Queues[k].Downloads[m].Id == download.Id {
 					i, j = k, m
 
 				}
