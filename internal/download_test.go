@@ -39,7 +39,7 @@ func Test_Delete(t *testing.T) {
 	}
 	Delete(dd)
 	act := len(State.Queues[0].downloads)
-	exp := 1
+	exp := 0
 	if exp != act {
 		t.Fatalf("download length is not correct. exp = %d, act = %d", exp, act)
 	}
