@@ -12,7 +12,7 @@ func InitState() {
 	}
 }
 
-func checkToBeInProgress (d Download) bool {
+func checkToBeInProgress(d Download) bool {
 	if d.status == Created {
 		return true
 	}
@@ -32,14 +32,35 @@ func findInPrpgressCandidates(state *AppState) []Download {
 			if remainingInProgress == 0 {
 				break
 			}
+			if checkToBeInProgress(d) {
+				result = append(result, d)
+				remainingInProgress--
+			}
 		}
-
 	}
+	return result
 
 }
 
 func UpdateState() {
 	var inProgressCandidates []Download
 	inProgressCandidates = findInPrpgressCandidates(State)
+	for _, v := range inProgressCandidates {
+		updateDownloadStatus(v.id, InProgress)
+		//pass to network
 
+	}
+
+}
+func updateDownloadStatus(id int, status DownloadStatus) {
+	for _, q := range State.Queues {
+		for _, d := range q.downloads {
+			if d.id == id {
+				d.status = status
+				if status == InProgress {
+					q.currentInProgressCount++
+				}
+			}
+		}
+	}
 }
