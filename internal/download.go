@@ -41,9 +41,9 @@ func resume(download types.Download) {
 }
 
 func findDownload(download types.Download) (i, j int) {
-	for k, _ := range State.Queues {
+	for k := range State.Queues {
 		if State.Queues[k].Id == download.Queue.Id {
-			for m, _ := range State.Queues[i].Downloads {
+			for m := range State.Queues[i].Downloads {
 				if State.Queues[k].Downloads[m].Id == download.Id {
 					i, j = k, m
 
