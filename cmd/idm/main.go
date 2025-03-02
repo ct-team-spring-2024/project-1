@@ -1,11 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"go-idm/internal"
 	"go-idm/types"
-	"log/slog"
-	"time"
 
 	"github.com/davecgh/go-spew/spew"
 )
@@ -26,11 +23,5 @@ func main() {
 
 	// slog.Info(fmt.Sprintf("SSS => %+v", internal.State.Queues[0]))
 	spew.Dump(internal.State)
-	for i := 0; i < 1; i++ {
-		// Some Queue/Download are added
-		internal.UpdateState()
-		time.Sleep(1 * time.Second)
-		slog.Info(fmt.Sprintf("State after step %d => ", i))
-		spew.Dump(internal.State)
-	}
+	internal.UpdaterWithCount(1)
 }

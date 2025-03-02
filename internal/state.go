@@ -2,8 +2,9 @@ package internal
 
 import (
 	"go-idm/types"
-	// "log/slog"
-	// "fmt"
+	"log/slog"
+	"fmt"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 )
@@ -25,7 +26,7 @@ type DownloadManager struct {
 
 type AppState struct {
 	Queues []*types.Queue
-	downloadManagers map[int]DownloadManager
+	downloadManagers map[int]*DownloadManager
 }
 
 var State *AppState
@@ -33,6 +34,7 @@ var State *AppState
 func InitState() {
 	State = &AppState{
 		Queues: make([]*types.Queue, 0, 10),
+		downloadManagers: make(map[int]*DownloadManager),
 	}
 }
 
@@ -65,7 +67,18 @@ func findInPrpgressCandidates(state *AppState) []types.Download {
 
 }
 
-func UpdateState() {
+func UpdaterWithCount(step int) {
+	for i := 0; i < step; i++ {
+		// Some Queue/Download are added
+		updateState()
+		time.Sleep(1 * time.Second)
+		slog.Info(fmt.Sprintf("================================================================================"))
+		slog.Info(fmt.Sprintf("State after step %d => ", i))
+		spew.Dump(State)
+	}
+}
+
+func updateState() {
 	var inProgressCandidates []types.Download
 	inProgressCandidates = findInPrpgressCandidates(State)
 	spew.Dump(inProgressCandidates)
@@ -81,6 +94,10 @@ func UpdateState() {
 		// }
 		// create download manager
 		createDownloadManager(d.Id)
+		spew.Dump(State.downloadManagers)
+		State.downloadManagers[d.Id].eventsChan <- DMEvent{
+			etype: start,
+		}
 	}
 }
 func updateDownloadStatus(id int, status types.DownloadStatus) {
@@ -104,4 +121,5 @@ func createDownloadManager(downloadId int) {
 		eventsChan: make(chan DMEvent, 0),
 	}
 	go DownloadManagerHandler(downloadId, downloadManager.eventsChan)
+	State.downloadManagers[downloadId] = &downloadManager
 }
