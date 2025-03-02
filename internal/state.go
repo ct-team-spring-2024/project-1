@@ -1,8 +1,11 @@
 package internal
 
 import (
-	"go-idm/pkg/network"
 	"go-idm/types"
+	// "log/slog"
+	// "fmt"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 type EType int
@@ -65,18 +68,20 @@ func findInPrpgressCandidates(state *AppState) []types.Download {
 func UpdateState() {
 	var inProgressCandidates []types.Download
 	inProgressCandidates = findInPrpgressCandidates(State)
-	for _, v := range inProgressCandidates {
-		updateDownloadStatus(v.Id, types.InProgress)
+	spew.Dump(inProgressCandidates)
+	for _, d := range inProgressCandidates {
+		updateDownloadStatus(d.Id, types.InProgress)
 		// pass to network
-		result := network.SyncStartDownload(v)
-		switch e := result.Err; {
-		case e == nil:
-			updateDownloadStatus(v.Id, types.Completed)
-		default:
-			updateDownloadStatus(v.Id, types.Failed)
-		}
+		// result := network.SyncStartDownload(v)
+		// switch e := result.Err; {
+		// case e == nil:
+		//	updateDownloadStatus(v.Id, types.Completed)
+		// default:
+		//	updateDownloadStatus(v.Id, types.Failed)
+		// }
+		// create download manager
+		createDownloadManager(d.Id)
 	}
-
 }
 func updateDownloadStatus(id int, status types.DownloadStatus) {
 	for _, q := range State.Queues {
@@ -92,4 +97,11 @@ func updateDownloadStatus(id int, status types.DownloadStatus) {
 			}
 		}
 	}
+}
+func createDownloadManager(downloadId int) {
+	// create a download manager and goroutine for it
+	downloadManager := DownloadManager{
+		eventsChan: make(chan DMEvent, 0),
+	}
+	go DownloadManagerHandler(downloadId, downloadManager.eventsChan)
 }

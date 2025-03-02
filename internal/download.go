@@ -3,10 +3,9 @@ package internal
 import (
 	"fmt"
 	"go-idm/types"
-	"log/slog"
 )
 
-func AddDownload(download types.Download) {
+func AddDownload(download types.Download) error {
 	queueId := download.Queue.Id
 	var foundQueue *types.Queue
 	for _, queue := range State.Queues {
@@ -15,9 +14,11 @@ func AddDownload(download types.Download) {
 			break
 		}
 	}
-	slog.Info(fmt.Sprintf("add download => %+v", foundQueue))
+	if (foundQueue == nil) {
+		return fmt.Errorf("queue with ID %d not found", queueId)
+	}
 	foundQueue.Downloads = append(foundQueue.Downloads, &download)
-	slog.Info(fmt.Sprintf("add download => %+v", foundQueue))
+	return nil
 }
 
 func Delete(download types.Download) {

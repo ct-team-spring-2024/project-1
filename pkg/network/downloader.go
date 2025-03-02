@@ -41,5 +41,4 @@ func SyncStartDownload(download types.Download) DownloadResult {
 	}
 
 	return DownloadResult{true, nil}
-
 }

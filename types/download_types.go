@@ -25,8 +25,10 @@ type Download struct {
 	Queue             Queue
 }
 
-func NewDownload(id int) Download {
+func NewDownload(id int, q Queue) Download {
 	return Download{
 		Id: id,
+		Queue: q,
+		Status: Created,
 	}
 }

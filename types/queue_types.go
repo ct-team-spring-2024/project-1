@@ -21,6 +21,6 @@ type Queue struct {
 
 func NewQueue(id int) Queue {
 	return Queue{
-		Id: 0,
+		Id: id,
 	}
 }

@@ -13,7 +13,7 @@ func main() {
 	q := types.NewQueue(0)
 	internal.AddQueue(q)
 	slog.Info(fmt.Sprintf("state 1 => %+v", internal.State.Queues[0]))
-	d := types.NewDownload(0)
+	d := types.NewDownload(0, q)
 	internal.AddDownload(d)
 	slog.Info(fmt.Sprintf("state 2 => %+v", internal.State.Queues[0]))
 	internal.Delete(d)
