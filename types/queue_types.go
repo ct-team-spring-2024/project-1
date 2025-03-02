@@ -10,7 +10,7 @@ type TimeInterval struct {
 }
 type Queue struct {
 	Id                     int
-	Downloads              []Download
+	Downloads              []*Download
 	MaxInProgressCount     int
 	CurrentInProgressCount int
 	MaxRetriesCount        int

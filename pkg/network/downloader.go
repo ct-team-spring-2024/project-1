@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filePath"
+	"path/filepath"
 )
 
 type DownloadResult struct {

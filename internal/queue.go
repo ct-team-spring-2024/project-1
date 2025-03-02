@@ -14,7 +14,7 @@ func getInProgressDownloads(queue types.Queue) (int, []types.Download) {
 	for _, d := range queue.Downloads {
 		if d.Status == types.InProgress {
 			cnt++
-			result = append(result, d)
+			result = append(result, *d)
 		}
 	}
 	return cnt, result

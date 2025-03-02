@@ -16,7 +16,7 @@ func AddDownload(download types.Download) {
 		}
 	}
 	slog.Info(fmt.Sprintf("add download => %+v", foundQueue))
-	foundQueue.Downloads = append(foundQueue.Downloads, download)
+	foundQueue.Downloads = append(foundQueue.Downloads, &download)
 	slog.Info(fmt.Sprintf("add download => %+v", foundQueue))
 }
 

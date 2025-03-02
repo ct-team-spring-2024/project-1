@@ -5,8 +5,24 @@ import (
 	"go-idm/types"
 )
 
+type EType int
+const (
+	start EType = iota
+	stop
+)
+
+type DMEvent struct {
+	etype EType
+	// TODO Add data fields for the event
+}
+
+type DownloadManager struct {
+	eventsChan chan DMEvent
+}
+
 type AppState struct {
 	Queues []*types.Queue
+	downloadManagers map[int]DownloadManager
 }
 
 var State *AppState
@@ -30,15 +46,14 @@ func checkToBeInProgress(d types.Download) bool {
 func findInPrpgressCandidates(state *AppState) []types.Download {
 	result := make([]types.Download, 0)
 	for _, q := range state.Queues {
-		inProgressCnt, inProgressDownloads := getInProgressDownloads(*q)
-		result = append(result, inProgressDownloads...)
+		inProgressCnt, _ := getInProgressDownloads(*q)
 		remainingInProgress := q.MaxInProgressCount - inProgressCnt
 		for _, d := range q.Downloads {
 			if remainingInProgress == 0 {
 				break
 			}
-			if checkToBeInProgress(d) {
-				result = append(result, d)
+			if checkToBeInProgress(*d) {
+				result = append(result, *d)
 				remainingInProgress--
 			}
 		}
@@ -59,7 +74,6 @@ func UpdateState() {
 			updateDownloadStatus(v.Id, types.Completed)
 		default:
 			updateDownloadStatus(v.Id, types.Failed)
-
 		}
 	}
 
@@ -73,8 +87,7 @@ func updateDownloadStatus(id int, status types.DownloadStatus) {
 					q.CurrentInProgressCount++
 				}
 				if status == types.Failed {
-					d.CurrentRetriesCnt++
-
+					d.CurrentRetriesCnt++ // TODO: Fails, because d is a copy
 				}
 			}
 		}
