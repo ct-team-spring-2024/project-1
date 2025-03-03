@@ -1,10 +1,11 @@
 package main
 
 import (
+	"log/slog"
+	"github.com/davecgh/go-spew/spew"
+
 	"go-idm/internal"
 	"go-idm/types"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
 
@@ -22,6 +23,7 @@ func main() {
 	// slog.Info(fmt.Sprintf("SSS => %+v", internal.State.Queues[0]))
 
 	// slog.Info(fmt.Sprintf("SSS => %+v", internal.State.Queues[0]))
+	slog.Info("Initial State =>")
 	spew.Dump(internal.State)
 	internal.UpdaterWithCount(1)
 }

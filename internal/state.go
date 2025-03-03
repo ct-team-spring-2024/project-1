@@ -15,13 +15,24 @@ const (
 	stop
 )
 
+type REType int
+const (
+	completed EType = iota
+	failure
+)
+
 type DMEvent struct {
 	etype EType
 	// TODO Add data fields for the event
 }
 
+type DMREvent struct {
+	etype REType
+}
+
 type DownloadManager struct {
 	eventsChan chan DMEvent
+	responseEventChan chan DMREvent
 }
 
 type AppState struct {
@@ -95,6 +106,7 @@ func updateState() {
 		// create download manager
 		createDownloadManager(d.Id)
 		spew.Dump(State.downloadManagers)
+		go DownloadManagerHandler(d.Id, State.downloadManagers[d.Id].eventsChan)
 		State.downloadManagers[d.Id].eventsChan <- DMEvent{
 			etype: start,
 		}
@@ -115,11 +127,12 @@ func updateDownloadStatus(id int, status types.DownloadStatus) {
 		}
 	}
 }
+
+// create a download manager
 func createDownloadManager(downloadId int) {
-	// create a download manager and goroutine for it
 	downloadManager := DownloadManager{
-		eventsChan: make(chan DMEvent, 0),
+		eventsChan: make(chan DMEvent),
+		responseEventChan: make(chan DMREvent),
 	}
-	go DownloadManagerHandler(downloadId, downloadManager.eventsChan)
 	State.downloadManagers[downloadId] = &downloadManager
 }
