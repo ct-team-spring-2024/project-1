@@ -5,13 +5,14 @@ import (
 	"log/slog"
 )
 
-func DownloadManagerHandler(downloadId int, ch <-chan DMEvent) {
+func DownloadManagerHandler(downloadId int, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	slog.Info(fmt.Sprintf("DownloadManagerHandler for download %d started", downloadId))
-	// Listen on the channel for incoming events
-	for event := range ch {
+	// Listen on the  channel for incoming events
+	for event := range chIn {
 		switch event.etype {
 		case start:
 			slog.Info(fmt.Sprintf("Download %d: Received START event\n", downloadId))
+
 		case stop:
 			slog.Info(fmt.Sprintf("Download %d: Received STOP event\n", downloadId))
 		default:

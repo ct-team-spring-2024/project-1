@@ -106,7 +106,7 @@ func updateState() {
 		// create download manager
 		createDownloadManager(d.Id)
 		spew.Dump(State.downloadManagers)
-		go DownloadManagerHandler(d.Id, State.downloadManagers[d.Id].eventsChan)
+		go DownloadManagerHandler(d.Id, State.downloadManagers[d.Id].eventsChan, State.downloadManagers[d.Id].responseEventChan)
 		State.downloadManagers[d.Id].eventsChan <- DMEvent{
 			etype: start,
 		}
