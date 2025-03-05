@@ -53,7 +53,9 @@ func UpdateState() {
 	for _, v := range inProgressCandidates {
 		updateDownloadStatus(v.Id, types.InProgress)
 		// pass to network
-		result := network.SyncStartDownload(v)
+		inCh := make(chan int)
+		resCh := make(chan int)
+		result := network.SyncStartDownload(v, inCh, resCh)
 		switch e := result.Err; {
 		case e == nil:
 			updateDownloadStatus(v.Id, types.Completed)
