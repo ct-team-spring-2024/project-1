@@ -95,15 +95,6 @@ func updateState() {
 	spew.Dump(inProgressCandidates)
 	for _, d := range inProgressCandidates {
 		updateDownloadStatus(d.Id, types.InProgress)
-		// pass to network
-		// result := network.SyncStartDownload(v)
-		// switch e := result.Err; {
-		// case e == nil:
-		//	updateDownloadStatus(v.Id, types.Completed)
-		// default:
-		//	updateDownloadStatus(v.Id, types.Failed)
-		// }
-		// create download manager
 		createDownloadManager(d.Id)
 		spew.Dump(State.downloadManagers)
 		go DownloadManagerHandler(d.Id, State.downloadManagers[d.Id].eventsChan, State.downloadManagers[d.Id].responseEventChan)
