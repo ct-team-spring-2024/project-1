@@ -57,6 +57,7 @@ const (
 	paused
 	failed
 	finished
+	terminated
 )
 
 type CMEvent struct {
@@ -154,13 +155,30 @@ func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan
 						EType: finish,
 					}
 				}
-				// wait for stop successfully message from them.
-				//   if not get, a problem has happened.
+				// TODO: should we wait for stop successfully message from them?
+				waitForTerminatedEvents(respCh, numChunks, 5 * time.Second)
 			}
-		case v := <-respCh:
-			i := v.id
-			fmt.Printf("Chunk number %v is finished", i)
-			doneChannels[i] = true
+		case cmrevent := <-respCh:
+			switch cmrevent.EType {
+			case failed:
+				// stoping all chunks
+				for _, chInCM := range inputChannels {
+					*chInCM <- CMEvent{
+						EType: finish,
+					}
+				}
+				waitForTerminatedEvents(respCh, numChunks, 5 * time.Second)
+				chOut <- DMREvent{
+					Etype: Failure,
+				}
+				slog.Error(fmt.Sprintf("Failure in chunk managers"))
+				return
+			case finished:
+				doneChannels[cmrevent.id] = true
+				fmt.Printf("Chunk number %v is finished", cmrevent.id)
+			default:
+				slog.Error(fmt.Sprintf("unhandled type => %v", cmrevent))
+			}
 		default:
 			time.Sleep(500 * time.Millisecond)
 			fmt.Println("Woke up")
@@ -323,4 +341,28 @@ func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- D
 		os.Remove(tempFilePath)
 	}
 	fmt.Println("Download completed!")
+}
+
+func waitForTerminatedEvents(respCh <-chan CMREvent, numOfChunks int, timeout time.Duration) error {
+	count := 0
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case event, ok := <-respCh:
+			if !ok {
+				return fmt.Errorf("channel closed before receiving required events")
+			}
+			if event.EType == terminated {
+				count++
+				fmt.Printf("Received terminated event #%d (ID: %d)\n", count, event.id)
+				if count >= numOfChunks {
+					return nil
+				}
+			}
+		case <-timer.C:
+			return fmt.Errorf("timeout waiting for terminated events")
+		}
+	}
 }
