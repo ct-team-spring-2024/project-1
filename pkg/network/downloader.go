@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go-idm/types"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,16 +13,42 @@ import (
 	"time"
 )
 
+type EType int
+const (
+	Startt EType = iota
+	Stopp
+)
+
+type REType int
+const (
+	Completed REType = iota
+	Failure
+)
+
+type DMEvent struct {
+	Etype EType
+	// TODO Add data fields for the event
+}
+
+type DMREvent struct {
+	Etype REType
+}
+
+type DownloadManager struct {
+	EventsChan chan DMEvent
+	ResponseEventChan chan DMREvent
+}
+
 type DownloadResult struct {
 	IsDone bool
 	Err    error
 }
 
-type CEtpye int
+type CMEtype int
 type CMREtype int
 
 const (
-	start CEtpye = iota
+	start CMEtype = iota
 	finish
 )
 
@@ -33,37 +60,46 @@ const (
 )
 
 type CMEvent struct {
-	event CEtpye
+	EType CMEtype
 }
 
 type CMREvent struct {
-	responseEvent CMREtype
-	id            int
+	EType CMREtype
+	id int
 }
 
-func SyncStartDownload(download types.Download, inputChannel chan int, responseCh chan int) DownloadResult {
+// TODO: On newConfig, all the current chunk places are stored in state.
+//       Then give the new download, the chnuks managers are recreated.
+func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	url := download.Url
 	absolutePath := filepath.Join(download.Queue.Destination, download.Filename)
 
 	// Send a HEAD request to get the file size
 	resp, err := http.Head(url)
 	if err != nil {
-		responseCh <- -1
-		return DownloadResult{false, fmt.Errorf("HTTP HEAD failed: %w", err)}
+		chOut <- DMREvent{
+			Etype: Failure,
+		}
+		slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
+		return
 	}
 	defer resp.Body.Close()
 
 	fileSize := resp.ContentLength
 	if fileSize <= 0 {
-		responseCh <- -1
-		return DownloadResult{false, fmt.Errorf("invalid file size: %d", fileSize)}
+		chOut <- DMREvent{
+			Etype: Failure,
+		}
+		slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
+		return
 	}
 
 	// Check if the server supports range requests
 	if resp.Header.Get("Accept-Ranges") != "bytes" {
 		fmt.Println("Server does not support range requests. Downloading the entire file.")
-		inputCh := make(chan int)
-		return downloadEntireFile(url, absolutePath, &inputCh, responseCh)
+
+		downloadEntireFile(url, absolutePath, chIn, chOut)
+		return
 	}
 
 	// Server supports range requests, proceed with chunked download
@@ -75,8 +111,6 @@ func SyncStartDownload(download types.Download, inputChannel chan int, responseC
 	tempFilePaths := make([]string, numChunks)
 
 	inputChannels := make([]*chan CMEvent, 0)
-	//respChannels := make([]*chan CMREvent, 0)
-	// Download each chunk concurrently
 	respCh := make(chan CMREvent)
 	for i := 0; i < numChunks; i++ {
 		start := int64(i) * chunkSize
@@ -91,8 +125,11 @@ func SyncStartDownload(download types.Download, inputChannel chan int, responseC
 		// Create a temporary file for this chunk
 		tempFile, err := os.CreateTemp("", fmt.Sprintf("chunk-%d-", i))
 		if err != nil {
-			responseCh <- -1
-			return DownloadResult{false, fmt.Errorf("failed to create temp file: %w", err)}
+			chOut <- DMREvent{
+				Etype: Failure,
+			}
+			slog.Error(fmt.Sprintf("failed to create temp file: %v", err))
+			return
 		}
 		tempFiles[i] = tempFile
 		tempFilePaths[i] = tempFile.Name()
@@ -102,16 +139,28 @@ func SyncStartDownload(download types.Download, inputChannel chan int, responseC
 
 	}
 	doneChannels := make([]bool, numChunks)
-outerLoop:
 	for {
 		select {
-		case <-inputChannel:
-			//do stuff
+		case event := <-chIn:
+			// For each of the possible inputs, sent correct messages to the
+			// chunkManagers.
+			switch event.Etype {
+			case Startt:
+				// NOTHING
+			case Stopp:
+				// send stop to all chunk managers
+				for _, chInCM := range inputChannels {
+					*chInCM <- CMEvent{
+						EType: finish,
+					}
+				}
+				// wait for stop successfully message from them.
+				//   if not get, a problem has happened.
+			}
 		case v := <-respCh:
 			i := v.id
 			fmt.Printf("Chunk number %v is finished", i)
 			doneChannels[i] = true
-
 		default:
 			time.Sleep(500 * time.Millisecond)
 			fmt.Println("Woke up")
@@ -123,46 +172,14 @@ outerLoop:
 			}
 			if done {
 				fmt.Print("Proccess finished")
-				break outerLoop
-
+				createFinalFile(absolutePath, tempFilePaths, chOut)
+				return
 			}
-
 		}
 	}
-	// Wait for all chunks to finish downloading
-	//wg.Wait()
-
-	// Merge the temporary files into the final file
-	fmt.Println("creating file")
-	finalFile, err := os.Create(absolutePath)
-	if err != nil {
-		responseCh <- -1
-		return DownloadResult{false, fmt.Errorf("failed to create final file: %w", err)}
-	}
-	defer finalFile.Close()
-	fmt.Println("writing to final file")
-	for _, tempFilePath := range tempFilePaths {
-		tempFile, err := os.Open(tempFilePath)
-		if err != nil {
-			responseCh <- -1
-			return DownloadResult{false, fmt.Errorf("failed to open temp file: %w", err)}
-		}
-
-		_, err = io.Copy(finalFile, tempFile)
-		tempFile.Close()
-		if err != nil {
-			responseCh <- -1
-			return DownloadResult{false, fmt.Errorf("failed to merge temp file: %w", err)}
-		}
-
-		// Remove the temporary file
-		os.Remove(tempFilePath)
-	}
-
-	fmt.Println("Download completed!")
-	return DownloadResult{true, nil}
 }
 
+// TODO inputCh should be monitored
 func downloadChunk(url string, start, end int64, tempFile *os.File, chunkID int, wg *sync.WaitGroup, inputCh *chan CMEvent, responseCh *chan CMREvent) {
 	// Create a new HTTP request with a range header
 	req, err := http.NewRequest("GET", url, nil)
@@ -211,24 +228,32 @@ func downloadChunk(url string, start, end int64, tempFile *os.File, chunkID int,
 	return
 }
 
-func downloadEntireFile(url, filePath string, inputCh *chan int, responseCh chan int) DownloadResult {
+
+// TODO: buggy now! dosen't cancel sync download in case of new chIn message
+// TODO sent completed on the chOut
+func downloadEntireFile(url, filePath string, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	resp, err := http.Get(url)
 	if err != nil {
-		responseCh <- -1
-		return DownloadResult{false, fmt.Errorf("HTTP GET failed: %w", err)}
+		chOut <- DMREvent{
+			Etype: Failure,
+		}
+		slog.Error(fmt.Sprintf("HTTP GET failed: %v", err))
+		return
 	}
 	defer resp.Body.Close()
 
 	file, err := os.Create(filePath)
 	if err != nil {
-		responseCh <- -1
-		return DownloadResult{false, fmt.Errorf("failed to create file: %w", err)}
+		chOut <- DMREvent{
+			Etype: Failure,
+		}
+		slog.Error(fmt.Sprintf("failed to create file: %v", err))
+		return
 	}
 	defer file.Close()
 	for {
 		select {
-
-		case <-*inputCh:
+		case <-chIn:
 		//do stuff
 		default:
 			reader := bufio.NewReader(resp.Body)
@@ -236,15 +261,21 @@ func downloadEntireFile(url, filePath string, inputCh *chan int, responseCh chan
 
 			n, err := reader.Read(buffer)
 			if err != nil && err != io.EOF {
-				fmt.Printf("Error reading data: %v\n", err)
-				return DownloadResult{IsDone: false}
+				chOut <- DMREvent{
+					Etype: Failure,
+				}
+				slog.Error(fmt.Sprintf("Error reading data: %v\n", err))
+				return
 			}
 
 			if n > 0 {
 				_, err := file.Write(buffer[:n])
 				if err != nil {
-					fmt.Printf("Error writing to temp file: %v\n", err)
-					return DownloadResult{IsDone: false}
+					chOut <- DMREvent{
+						Etype: Failure,
+					}
+					slog.Error(fmt.Sprintf("Error writing to temp file: %v\n", err))
+					return
 				}
 			}
 
@@ -253,7 +284,43 @@ func downloadEntireFile(url, filePath string, inputCh *chan int, responseCh chan
 			}
 
 		}
-
-		return DownloadResult{true, nil}
 	}
+}
+
+func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- DMREvent) {
+	// Merge the temporary files into the final file
+	fmt.Println("creating file")
+	finalFile, err := os.Create(absolutePath)
+	if err != nil {
+		chOut <- DMREvent{
+			Etype: Failure,
+		}
+		slog.Error(fmt.Sprintf("failed to create final file: %v", err))
+		return
+	}
+	defer finalFile.Close()
+	fmt.Println("writing to final file")
+	for _, tempFilePath := range tempFilePaths {
+		tempFile, err := os.Open(tempFilePath)
+		if err != nil {
+			chOut <- DMREvent{
+				Etype: Failure,
+			}
+			slog.Error(fmt.Sprintf("failed to open temp file: %v", err))
+			return
+		}
+
+		_, err = io.Copy(finalFile, tempFile)
+		tempFile.Close()
+		if err != nil {
+			chOut <- DMREvent{
+				Etype: Failure,
+			}
+			slog.Error(fmt.Sprintf("failed to merge temp file: %v", err))
+			return
+		}
+		// Remove the temporary file
+		os.Remove(tempFilePath)
+	}
+	fmt.Println("Download completed!")
 }

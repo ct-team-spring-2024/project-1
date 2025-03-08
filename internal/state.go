@@ -1,43 +1,20 @@
 package internal
 
 import (
+	"fmt"
+	"go-idm/pkg/network"
 	"go-idm/types"
 	"log/slog"
-	"fmt"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
 )
 
-type EType int
-const (
-	start EType = iota
-	stop
-)
-
-type REType int
-const (
-	completed EType = iota
-	failure
-)
-
-type DMEvent struct {
-	etype EType
-	// TODO Add data fields for the event
-}
-
-type DMREvent struct {
-	etype REType
-}
-
-type DownloadManager struct {
-	eventsChan chan DMEvent
-	responseEventChan chan DMREvent
-}
-
 type AppState struct {
+	mu sync.Mutex
 	Queues []*types.Queue
-	downloadManagers map[int]*DownloadManager
+	downloadManagers map[int]*network.DownloadManager
 }
 
 var State *AppState
@@ -45,7 +22,7 @@ var State *AppState
 func InitState() {
 	State = &AppState{
 		Queues: make([]*types.Queue, 0, 10),
-		downloadManagers: make(map[int]*DownloadManager),
+		downloadManagers: make(map[int]*network.DownloadManager),
 	}
 }
 
@@ -90,6 +67,7 @@ func UpdaterWithCount(step int) {
 }
 
 func updateState() {
+	State.mu.Lock()
 	var inProgressCandidates []types.Download
 	inProgressCandidates = findInPrpgressCandidates(State)
 	spew.Dump(inProgressCandidates)
@@ -97,12 +75,15 @@ func updateState() {
 		updateDownloadStatus(d.Id, types.InProgress)
 		createDownloadManager(d.Id)
 		spew.Dump(State.downloadManagers)
-		go DownloadManagerHandler(d.Id, State.downloadManagers[d.Id].eventsChan, State.downloadManagers[d.Id].responseEventChan)
-		State.downloadManagers[d.Id].eventsChan <- DMEvent{
-			etype: start,
-		}
+		go network.AsyncStartDownload(d, State.downloadManagers[d.Id].EventsChan, State.downloadManagers[d.Id].ResponseEventChan)
+		// go DownloadManagerHandler(d.Id, State.downloadManagers[d.Id].eventsChan, State.downloadManagers[d.Id].responseEventChan)
+		// State.downloadManagers[d.Id].EventsChan <- network.DMEvent{
+		//	Etype: network.Startt,
+		// }
 	}
+	State.mu.Unlock()
 }
+
 func updateDownloadStatus(id int, status types.DownloadStatus) {
 	for _, q := range State.Queues {
 		for _, d := range q.Downloads {
@@ -119,11 +100,10 @@ func updateDownloadStatus(id int, status types.DownloadStatus) {
 	}
 }
 
-// create a download manager
 func createDownloadManager(downloadId int) {
-	downloadManager := DownloadManager{
-		eventsChan: make(chan DMEvent),
-		responseEventChan: make(chan DMREvent),
+	downloadManager := network.DownloadManager{
+		EventsChan: make(chan network.DMEvent),
+		ResponseEventChan: make(chan network.DMREvent),
 	}
 	State.downloadManagers[downloadId] = &downloadManager
 }
