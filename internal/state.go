@@ -1,14 +1,14 @@
 package internal
 
 import (
+	"sync"
 	"fmt"
+	"log/slog"
+	"time"
+	"github.com/davecgh/go-spew/spew"
+
 	"go-idm/pkg/network"
 	"go-idm/types"
-	"log/slog"
-	"sync"
-	"time"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
 type AppState struct {
@@ -60,9 +60,11 @@ func UpdaterWithCount(step int) {
 		// Some Queue/Download are added
 		updateState()
 		time.Sleep(1 * time.Second)
-		slog.Info(fmt.Sprintf("================================================================================"))
-		slog.Info(fmt.Sprintf("State after step %d => ", i))
-		spew.Dump(State)
+		if (i % 5 == 0) {
+			slog.Info(fmt.Sprintf("================================================================================"))
+			slog.Info(fmt.Sprintf("State after step %d => ", i))
+			spew.Dump(State)
+		}
 	}
 }
 
@@ -76,6 +78,17 @@ func updateState() {
 		createDownloadManager(d.Id)
 		spew.Dump(State.downloadManagers)
 		go network.AsyncStartDownload(d, State.downloadManagers[d.Id].EventsChan, State.downloadManagers[d.Id].ResponseEventChan)
+		// setup listener for each of the generated downloads.
+		go func(){
+			for responseEvent := range State.downloadManagers[d.Id].ResponseEventChan {
+				switch responseEvent.Etype {
+				case network.Completed:
+					slog.Info(fmt.Sprintf("Response Event for %d => %s", d.Id, spew.Sdump(responseEvent)))
+				case network.Failure:
+					slog.Info(fmt.Sprintf("Response Event for %d => %s", d.Id, spew.Sdump(responseEvent)))
+				}
+			}
+		}()
 		// go DownloadManagerHandler(d.Id, State.downloadManagers[d.Id].eventsChan, State.downloadManagers[d.Id].responseEventChan)
 		// State.downloadManagers[d.Id].EventsChan <- network.DMEvent{
 		//	Etype: network.Startt,

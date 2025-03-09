@@ -14,12 +14,14 @@ import (
 )
 
 type EType int
+
 const (
 	Startt EType = iota
 	Stopp
 )
 
 type REType int
+
 const (
 	Completed REType = iota
 	Failure
@@ -35,7 +37,7 @@ type DMREvent struct {
 }
 
 type DownloadManager struct {
-	EventsChan chan DMEvent
+	EventsChan        chan DMEvent
 	ResponseEventChan chan DMREvent
 }
 
@@ -66,25 +68,29 @@ type CMEvent struct {
 
 type CMREvent struct {
 	EType CMREtype
-	id int
+	id    int
 }
 
 // TODO: On newConfig, all the current chunk places are stored in state.
-//       Then give the new download, the chnuks managers are recreated.
+//	Then give the new download, the chnuks managers are recreated.
 func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	url := download.Url
 	absolutePath := filepath.Join(download.Queue.Destination, download.Filename)
 
 	// Send a HEAD request to get the file size
 	resp, err := http.Head(url)
+	var hasAcceptRanges bool
+	slog.Info(fmt.Sprintf("ggg => %v %v", resp, err))
 	if err != nil {
 		chOut <- DMREvent{
 			Etype: Failure,
 		}
+
 		slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
 		return
 	}
 	defer resp.Body.Close()
+
 
 	fileSize := resp.ContentLength
 	if fileSize <= 0 {
@@ -94,6 +100,7 @@ func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan
 		slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
 		return
 	}
+
 
 	// Check if the server supports range requests
 	if resp.Header.Get("Accept-Ranges") != "bytes" {
@@ -156,7 +163,7 @@ func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan
 					}
 				}
 				// TODO: should we wait for stop successfully message from them?
-				waitForTerminatedEvents(respCh, numChunks, 5 * time.Second)
+				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
 			}
 		case cmrevent := <-respCh:
 			switch cmrevent.EType {
@@ -167,7 +174,7 @@ func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan
 						EType: finish,
 					}
 				}
-				waitForTerminatedEvents(respCh, numChunks, 5 * time.Second)
+				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
 				chOut <- DMREvent{
 					Etype: Failure,
 				}
@@ -245,7 +252,6 @@ func downloadChunk(url string, start, end int64, tempFile *os.File, chunkID int,
 	fmt.Printf("Chunk %d downloaded successfully.\n", chunkID)
 	return
 }
-
 
 // TODO: buggy now! dosen't cancel sync download in case of new chIn message
 // TODO sent completed on the chOut
