@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	// "net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -79,18 +80,19 @@ func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan
 
 	// Send a HEAD request to get the file size
 	resp, err := http.Head(url)
-	var hasAcceptRanges bool
+	// defer resp.Body.Close()
+
+	headError := false
 	slog.Info(fmt.Sprintf("ggg => %v %v", resp, err))
 	if err != nil {
-		chOut <- DMREvent{
-			Etype: Failure,
-		}
-
+		headError = true
 		slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
+	}
+	if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
+		fmt.Println("Server does not support range requests. Downloading the entire file.")
+		downloadEntireFile(url, absolutePath, chIn, chOut)
 		return
 	}
-	defer resp.Body.Close()
-
 
 	fileSize := resp.ContentLength
 	if fileSize <= 0 {
@@ -102,13 +104,7 @@ func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan
 	}
 
 
-	// Check if the server supports range requests
-	if resp.Header.Get("Accept-Ranges") != "bytes" {
-		fmt.Println("Server does not support range requests. Downloading the entire file.")
 
-		downloadEntireFile(url, absolutePath, chIn, chOut)
-		return
-	}
 
 	// Server supports range requests, proceed with chunked download
 	numChunks := 3
@@ -236,7 +232,7 @@ func downloadChunk(url string, start, end int64, tempFile *os.File, chunkID int,
 
 		if n > 0 {
 			_, err := tempFile.Write(buffer[:n])
-			fmt.Printf("Wrote %d bytes in chunk %v\n", n, chunkID)
+			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
 			if err != nil {
 				fmt.Printf("Error writing to temp file: %v\n", err)
 				return
@@ -255,8 +251,10 @@ func downloadChunk(url string, start, end int64, tempFile *os.File, chunkID int,
 
 // TODO: buggy now! dosen't cancel sync download in case of new chIn message
 // TODO sent completed on the chOut
-func downloadEntireFile(url, filePath string, chIn <-chan DMEvent, chOut chan<- DMREvent) {
-	resp, err := http.Get(url)
+func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan<- DMREvent) {
+	// parsedUrl, err := url.Parse(rawurl)
+	resp, err := http.Get(rawurl)
+	slog.Info(fmt.Sprintf("raw => %s", rawurl))
 	if err != nil {
 		chOut <- DMREvent{
 			Etype: Failure,

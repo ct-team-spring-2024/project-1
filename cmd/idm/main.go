@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"log/slog"
 	"github.com/davecgh/go-spew/spew"
 
@@ -26,11 +27,21 @@ func t1() {
 
 }
 func t2() {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
 	internal.InitState()
 	q := types.NewQueue(0)
 	d := types.NewDownload(0, q)
 	q.MaxInProgressCount = 1
+	q.Destination = "./files"
 	internal.AddQueue(q)
+	d.Filename = "downloaded.bin"
+	d.Url = "http://127.0.0.1:8080"
 	internal.AddDownload(d)
 	spew.Dump(internal.State)
 	// TODO: because of not having DI, we cannot
