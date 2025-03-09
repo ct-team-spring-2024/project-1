@@ -3,12 +3,12 @@ package network
 import (
 	"bufio"
 	"fmt"
-	"go-idm/types"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"test/types"
 	"time"
 )
 
