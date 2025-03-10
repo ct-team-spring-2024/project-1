@@ -26,11 +26,10 @@ func InitState() {
 	}
 }
 
-func checkToBeInProgress(d types.Download) bool {
-	q, err := FindQueue(d.Id)
-	if err != nil {
-		slog.Error(fmt.Sprint(err))
-	}
+func checkToBeInProgress(id int) bool {
+	i, j := FindDownload(id)
+	q := State.Queues[i]
+	d := q.Downloads[j]
 	if d.Status == types.Created {
 		return true
 	}
@@ -41,22 +40,23 @@ func checkToBeInProgress(d types.Download) bool {
 }
 
 func findInPrpgressCandidates(state *AppState) []types.Download {
+
 	result := make([]types.Download, 0)
-	for _, q := range state.Queues {
-		inProgressCnt, _ := getInProgressDownloads(*q)
-		remainingInProgress := q.MaxInProgressCount - inProgressCnt
-		for _, d := range q.Downloads {
+	for i, _ := range State.Queues {
+		queue := State.Queues[i]
+		inProgressCnt, _ := getInProgressDownloads(queue)
+		remainingInProgress := queue.MaxInProgressCount - inProgressCnt
+		for i, _ := range queue.Downloads {
 			if remainingInProgress == 0 {
 				break
 			}
-			if checkToBeInProgress(*d) {
-				result = append(result, *d)
+			if checkToBeInProgress(queue.Downloads[i].Id) {
+				result = append(result, *queue.Downloads[i])
 				remainingInProgress--
 			}
 		}
 	}
 	return result
-
 }
 
 func UpdaterWithCount(step int) {

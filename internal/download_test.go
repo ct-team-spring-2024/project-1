@@ -10,7 +10,7 @@ import (
 func Test_Add(t *testing.T) {
 	InitState()
 	q := types.NewQueue(0)
-	AddQueue(q)
+	AddQueue(&q)
 	d := types.Download{
 		Id:      0,
 		QueueId: q.Id,
@@ -28,7 +28,7 @@ func Test_Add(t *testing.T) {
 func Test_Delete(t *testing.T) {
 	InitState()
 	q := types.NewQueue(0)
-	AddQueue(q)
+	AddQueue(&q)
 	d := types.Download{
 		Id:      0,
 		QueueId: q.Id,

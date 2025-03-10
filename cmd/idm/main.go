@@ -17,7 +17,7 @@ func t1() {
 	d2 := types.NewDownload(1, &q)
 	d3 := types.NewDownload(2, &q)
 	q.MaxInProgressCount = 1
-	internal.AddQueue(q)
+	internal.AddQueue(&q)
 	internal.AddDownload(&d1, d1.Id)
 	internal.AddDownload(&d2, d2.QueueId)
 	internal.AddDownload(&d3, d3.QueueId)
@@ -39,7 +39,7 @@ func t2() {
 	d := types.NewDownload(0, &q)
 	q.MaxInProgressCount = 1
 	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
-	internal.AddQueue(q)
+	internal.AddQueue(&q)
 	d.Filename = "downloaded.bin"
 	d.Url = "http://127.0.0.1:8080"
 	internal.AddDownload(&d, d.Id)

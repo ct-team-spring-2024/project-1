@@ -11,7 +11,7 @@ func main() {
 	internal.InitState()
 	slog.Info(fmt.Sprintf("state 0 => %+v", internal.State))
 	q := types.NewQueue(0)
-	internal.AddQueue(q)
+	internal.AddQueue(&q)
 	slog.Info(fmt.Sprintf("state 1 => %+v", internal.State.Queues[0]))
 	d := types.NewDownload(0, &q)
 	internal.AddDownload(&d, d.QueueId)
