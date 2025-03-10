@@ -1,19 +1,19 @@
 package internal
 
 import (
-	"sync"
 	"fmt"
-	"log/slog"
-	"time"
 	"github.com/davecgh/go-spew/spew"
+	"log/slog"
+	"sync"
+	"time"
 
 	"go-idm/pkg/network"
 	"go-idm/types"
 )
 
 type AppState struct {
-	mu sync.Mutex
-	Queues []*types.Queue
+	mu               sync.Mutex
+	Queues           []*types.Queue
 	downloadManagers map[int]*network.DownloadManager
 }
 
@@ -21,16 +21,20 @@ var State *AppState
 
 func InitState() {
 	State = &AppState{
-		Queues: make([]*types.Queue, 0, 10),
+		Queues:           make([]*types.Queue, 0, 10),
 		downloadManagers: make(map[int]*network.DownloadManager),
 	}
 }
 
 func checkToBeInProgress(d types.Download) bool {
+	q, err := FindQueue(d.Id)
+	if err != nil {
+		slog.Error(fmt.Sprint(err))
+	}
 	if d.Status == types.Created {
 		return true
 	}
-	if d.Status == types.Failed && d.CurrentRetriesCnt < d.Queue.MaxRetriesCount {
+	if d.Status == types.Failed && d.CurrentRetriesCnt < q.MaxRetriesCount {
 		return true
 	}
 	return false
@@ -60,7 +64,7 @@ func UpdaterWithCount(step int) {
 		// Some Queue/Download are added
 		updateState()
 		time.Sleep(1 * time.Second)
-		if (i % 5 == 0) {
+		if i%5 == 0 {
 			slog.Info(fmt.Sprintf("================================================================================"))
 			slog.Info(fmt.Sprintf("State after step %d => ", i))
 			spew.Dump(State)
@@ -77,9 +81,10 @@ func updateState() {
 		updateDownloadStatus(d.Id, types.InProgress)
 		createDownloadManager(d.Id)
 		spew.Dump(State.downloadManagers)
-		go network.AsyncStartDownload(d, State.downloadManagers[d.Id].EventsChan, State.downloadManagers[d.Id].ResponseEventChan)
+		queue, _ := FindQueue(d.Id)
+		go network.AsyncStartDownload(d, *queue, State.downloadManagers[d.Id].EventsChan, State.downloadManagers[d.Id].ResponseEventChan)
 		// setup listener for each of the generated downloads.
-		go func(){
+		go func() {
 			for responseEvent := range State.downloadManagers[d.Id].ResponseEventChan {
 				switch responseEvent.Etype {
 				case network.Completed:
@@ -98,24 +103,32 @@ func updateState() {
 }
 
 func updateDownloadStatus(id int, status types.DownloadStatus) {
-	for _, q := range State.Queues {
-		for _, d := range q.Downloads {
-			if d.Id == id {
-				d.Status = status
-				if status == types.InProgress {
-					q.CurrentInProgressCount++
-				}
-				if status == types.Failed {
-					d.CurrentRetriesCnt++ // TODO: Fails, because d is a copy
-				}
-			}
-		}
+	i, j := FindDownload(id)
+	State.Queues[i].Downloads[j].Status = status
+	if status == types.InProgress {
+		State.Queues[i].CurrentInProgressCount++
 	}
+	if status == types.Failed {
+		State.Queues[i].Downloads[j].CurrentRetriesCnt++
+	}
+	// for _, q := range State.Queues {
+	// 	for _, d := range q.Downloads {
+	// 		if d.Id == id {
+	// 			d.Status = status
+	// 			if status == types.InProgress {
+	// 				q.CurrentInProgressCount++
+	// 			}
+	// 			if status == types.Failed {
+	// 				d.CurrentRetriesCnt++ // TODO: Fails, because d is a copy
+	// 			}
+	// 		}
+	// 	}
+	// }
 }
 
 func createDownloadManager(downloadId int) {
 	downloadManager := network.DownloadManager{
-		EventsChan: make(chan network.DMEvent),
+		EventsChan:        make(chan network.DMEvent),
 		ResponseEventChan: make(chan network.DMREvent),
 	}
 	State.downloadManagers[downloadId] = &downloadManager

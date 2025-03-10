@@ -73,10 +73,12 @@ type CMREvent struct {
 }
 
 // TODO: On newConfig, all the current chunk places are stored in state.
+//
 //	Then give the new download, the chnuks managers are recreated.
-func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan<- DMREvent) {
+func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	url := download.Url
-	absolutePath := filepath.Join(download.Queue.Destination, download.Filename)
+
+	absolutePath := filepath.Join(queue.Destination, download.Filename)
 
 	// Send a HEAD request to get the file size
 	resp, err := http.Head(url)
@@ -102,9 +104,6 @@ func AsyncStartDownload(download types.Download, chIn <-chan DMEvent, chOut chan
 		slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
 		return
 	}
-
-
-
 
 	// Server supports range requests, proceed with chunked download
 	numChunks := 3
@@ -240,7 +239,7 @@ func downloadChunk(url string, start, end int64, tempFile *os.File, chunkID int,
 		}
 
 		if err == io.EOF {
-			*responseCh <- CMREvent{id: chunkID}
+			*responseCh <- CMREvent{EType: finished, id: chunkID}
 			break
 		}
 	}
@@ -273,13 +272,13 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 		return
 	}
 	defer file.Close()
+	reader := bufio.NewReader(resp.Body)
+	buffer := make([]byte, 32*1024) // 32 KB buffer
 	for {
 		select {
 		case <-chIn:
 		//do stuff
 		default:
-			reader := bufio.NewReader(resp.Body)
-			buffer := make([]byte, 32*1024) // 32 KB buffer
 
 			n, err := reader.Read(buffer)
 			if err != nil && err != io.EOF {
@@ -302,7 +301,7 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 			}
 
 			if err == io.EOF {
-				break
+				return
 			}
 
 		}

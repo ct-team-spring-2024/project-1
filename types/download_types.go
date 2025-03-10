@@ -22,14 +22,14 @@ type Download struct {
 	Filename               string
 	Status                 DownloadStatus
 	CurrentRetriesCnt      int
-	Queue                  Queue
+	QueueId                int
 	CurrnetDownloadOffsets []int64
 }
 
-func NewDownload(id int, q Queue) Download {
+func NewDownload(id int, q *Queue) Download {
 	return Download{
-		Id: id,
-		Queue: q,
-		Status: Created,
+		Id:      id,
+		QueueId: q.Id,
+		Status:  Created,
 	}
 }

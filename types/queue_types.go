@@ -10,7 +10,7 @@ type TimeInterval struct {
 }
 type Queue struct {
 	Id                     int
-	Downloads              []*Download
+	Downloads              map[int]*Download
 	MaxInProgressCount     int
 	CurrentInProgressCount int
 	MaxRetriesCount        int
@@ -21,6 +21,7 @@ type Queue struct {
 
 func NewQueue(id int) Queue {
 	return Queue{
-		Id: id,
+		Id:        id,
+		Downloads: make(map[int]*Download),
 	}
 }

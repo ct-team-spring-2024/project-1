@@ -5,41 +5,35 @@ import (
 	"go-idm/types"
 )
 
-func AddDownload(download types.Download) error {
-	queueId := download.Queue.Id
-	var foundQueue *types.Queue
-	for _, queue := range State.Queues {
-		if queue.Id == queueId {
-			foundQueue = queue
-			break
-		}
+func AddDownload(download *types.Download, QueueId int) error {
+	queue, err := FindQueue(QueueId)
+	if err != nil {
+		return err
 	}
-	if (foundQueue == nil) {
-		return fmt.Errorf("queue with ID %d not found", queueId)
-	}
-	foundQueue.Downloads = append(foundQueue.Downloads, &download)
+	queue.Downloads[download.Id] = download
+	download.QueueId = QueueId
+
 	return nil
 }
 
-func Delete(download types.Download) {
+func Delete(id int) {
 	//TODO: Delete the file from the system too .
-	i, j := FindDownload(download.Id)
-	newDownloads := append(State.Queues[i].Downloads[:j], State.Queues[i].Downloads[j+1:]...)
-	State.Queues[i].Downloads = newDownloads
+	i, _ := FindDownload(id)
+
+	delete(State.Queues[i].Downloads, id)
 }
 
-func pause(download types.Download) {
+func pause(id int) {
 	//TODO : add a function to tell the Network layer to stop downloading
-	i, j := FindDownload(download.Id)
+	i, j := FindDownload(id)
 	State.Queues[i].Downloads[j].Status = types.Failed
 }
 
-func resume(download types.Download) {
-	i, j := FindDownload(download.Id)
+func resume(id int) {
+	i, j := FindDownload(id)
 	//Might need to add to downloads if status is not checked
 	State.Queues[i].Downloads[j].Status = types.InProgress
 }
-
 
 func FindDownload(id int) (i, j int) {
 	for k := range State.Queues {
@@ -61,4 +55,13 @@ func FindDownload2(id int) types.Download {
 		}
 	}
 	return types.Download{}
+}
+func FindQueue(id int) (*types.Queue, error) {
+	for i, _ := range State.Queues {
+		if State.Queues[i].Id == id {
+			return State.Queues[i], nil
+		}
+	}
+	return nil, fmt.Errorf("queue with ID %d not found", id)
+
 }
