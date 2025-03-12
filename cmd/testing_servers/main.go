@@ -5,7 +5,10 @@ import (
 	"net/http"
 )
 
-const fileName = "C:/Users/Asus/Documents/GitHub/project-1/files/largeFile.bin"
+
+// const fileName = "C:/Users/Asus/Documents/GitHub/project-1/files/largeFile.bin"
+const fileName = "./files/largefile.bin"
+
 
 func main() {
 

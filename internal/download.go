@@ -17,21 +17,18 @@ func AddDownload(download *types.Download, QueueId int) error {
 }
 
 func Delete(id int) {
-	//TODO: Delete the file from the system too .
 	i, _ := FindDownload(id)
 
 	delete(State.Queues[i].Downloads, id)
 }
 
 func pause(id int) {
-	//TODO : add a function to tell the Network layer to stop downloading
 	i, j := FindDownload(id)
 	State.Queues[i].Downloads[j].Status = types.Failed
 }
 
 func resume(id int) {
 	i, j := FindDownload(id)
-	//Might need to add to downloads if status is not checked
 	State.Queues[i].Downloads[j].Status = types.InProgress
 }
 
@@ -43,7 +40,7 @@ func FindDownload(id int) (i, j int) {
 			}
 		}
 	}
-	return -1, -1 // if not found
+	return -1, -1
 }
 
 func FindDownload2(id int) types.Download {
@@ -63,5 +60,4 @@ func FindQueue(id int) (*types.Queue, error) {
 		}
 	}
 	return nil, fmt.Errorf("queue with ID %d not found", id)
-
 }

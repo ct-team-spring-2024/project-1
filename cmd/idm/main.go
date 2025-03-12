@@ -38,7 +38,8 @@ func t2() {
 	q := types.NewQueue(0)
 	d := types.NewDownload(0, &q)
 	q.MaxInProgressCount = 1
-	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	q.Destination = "./files"
 	internal.AddQueue(&q)
 	d.Filename = "downloaded.bin"
 	d.Url = "http://127.0.0.1:8080"

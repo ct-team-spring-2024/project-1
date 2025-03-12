@@ -22,7 +22,6 @@ func Test_Add(t *testing.T) {
 	if exp != act {
 		t.Fatalf("download length is not correct. exp = %d, act = %d", exp, act)
 	}
-	// State.queues = append(State.queues, )
 }
 
 func Test_Delete(t *testing.T) {
