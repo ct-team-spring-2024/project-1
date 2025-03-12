@@ -73,8 +73,7 @@ type CMREvent struct {
 }
 
 // TODO: On newConfig, all the current chunk places are stored in state.
-//
-//	Then give the new download, the chnuks managers are recreated.
+//	 Then given the new download, the chnuks managers are recreated.
 func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	url := download.Url
 
