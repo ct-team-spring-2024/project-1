@@ -26,7 +26,7 @@ type Download struct {
 	CurrnetDownloadOffsets []int64
 }
 
-func NewDownload(id int, q *Queue) Download {
+func NewDownload(id int, q Queue) Download {
 	return Download{
 		Id:      id,
 		QueueId: q.Id,

@@ -13,7 +13,8 @@ import (
 
 type AppState struct {
 	mu               sync.Mutex
-	Queues           []*types.Queue
+	Queues           map[int]*types.Queue
+	Downloads        map[int]*types.Download
 	downloadManagers map[int]*network.DownloadManager
 }
 
@@ -21,15 +22,15 @@ var State *AppState
 
 func InitState() {
 	State = &AppState{
-		Queues:           make([]*types.Queue, 0, 10),
+		Queues: make(map[int]*types.Queue),
+		Downloads: make(map[int]*types.Download),
 		downloadManagers: make(map[int]*network.DownloadManager),
 	}
 }
 
 func checkToBeInProgress(id int) bool {
-	i, j := FindDownload(id)
-	q := State.Queues[i]
-	d := q.Downloads[j]
+	d := State.Downloads[id]
+	q := State.Queues[d.QueueId]
 	if d.Status == types.Created {
 		return true
 	}
@@ -39,19 +40,18 @@ func checkToBeInProgress(id int) bool {
 	return false
 }
 
-func findInPrpgressCandidates(state *AppState) []types.Download {
-
+func findInPrpgressCandidates() []types.Download {
 	result := make([]types.Download, 0)
-	for i, _ := range State.Queues {
+	for i := range State.Queues {
 		queue := State.Queues[i]
 		inProgressCnt, _ := getInProgressDownloads(queue)
 		remainingInProgress := queue.MaxInProgressCount - inProgressCnt
-		for i, _ := range queue.Downloads {
+		for _, downloadId := range queue.DownloadIds {
 			if remainingInProgress == 0 {
 				break
 			}
-			if checkToBeInProgress(queue.Downloads[i].Id) {
-				result = append(result, *queue.Downloads[i])
+			if checkToBeInProgress(downloadId) {
+				result = append(result, *State.Downloads[downloadId])
 				remainingInProgress--
 			}
 		}
@@ -75,8 +75,8 @@ func UpdaterWithCount(step int) {
 func updateState() {
 	State.mu.Lock()
 	var inProgressCandidates []types.Download
-	inProgressCandidates = findInPrpgressCandidates(State)
-	spew.Dump(inProgressCandidates)
+	inProgressCandidates = findInPrpgressCandidates()
+	slog.Info(fmt.Sprintf("candidates => %+v", inProgressCandidates))
 	for _, d := range inProgressCandidates {
 		updateDownloadStatus(d.Id, types.InProgress)
 		createDownloadManager(d.Id)
@@ -103,27 +103,13 @@ func updateState() {
 }
 
 func updateDownloadStatus(id int, status types.DownloadStatus) {
-	i, j := FindDownload(id)
-	State.Queues[i].Downloads[j].Status = status
+	State.Downloads[id].Status = status
 	if status == types.InProgress {
-		State.Queues[i].CurrentInProgressCount++
+		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount++
 	}
 	if status == types.Failed {
-		State.Queues[i].Downloads[j].CurrentRetriesCnt++
+		State.Downloads[id].CurrentRetriesCnt++
 	}
-	// for _, q := range State.Queues {
-	// 	for _, d := range q.Downloads {
-	// 		if d.Id == id {
-	// 			d.Status = status
-	// 			if status == types.InProgress {
-	// 				q.CurrentInProgressCount++
-	// 			}
-	// 			if status == types.Failed {
-	// 				d.CurrentRetriesCnt++ // TODO: Fails, because d is a copy
-	// 			}
-	// 		}
-	// 	}
-	// }
 }
 
 func createDownloadManager(downloadId int) {

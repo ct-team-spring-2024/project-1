@@ -84,7 +84,6 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	// defer resp.Body.Close()
 
 	headError := false
-	slog.Info(fmt.Sprintf("ggg => %v %v", resp, err))
 	if err != nil {
 		headError = true
 		slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
