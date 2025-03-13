@@ -62,7 +62,7 @@ func t3() {
 	q := types.NewQueue(0)
 	d1 := types.NewDownload(0, q)
 	d2 := types.NewDownload(1, q)
-	q.MaxInProgressCount = 2
+	q.MaxInProgressCount = 1
 	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
 	q.Destination = "./files"
 	internal.AddQueue(q)

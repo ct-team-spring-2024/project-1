@@ -10,7 +10,6 @@ import (
 	// "net/url"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 )
 
@@ -106,8 +105,8 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	// Server supports range requests, proceed with chunked download
 	numChunks := 3
 	chunkSize := fileSize / int64(numChunks)
+	rateLimit := int64(1024 * 1024 * 10 / numChunks)
 
-	var wg sync.WaitGroup
 	tempFiles := make([]*os.File, numChunks)
 	tempFilePaths := make([]string, numChunks)
 
@@ -135,8 +134,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 		tempFiles[i] = tempFile
 		tempFilePaths[i] = tempFile.Name()
 
-		wg.Add(1)
-		go downloadChunk(download.Url, start, end, tempFile, i, &wg, &inputCh, &respCh)
+		go downloadChunk(download.Url, start, end, tempFile, i, &inputCh, &respCh, rateLimit)
 
 	}
 	doneChannels := make([]bool, numChunks)
@@ -198,7 +196,9 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 }
 
 // TODO inputCh should be monitored
-func downloadChunk(url string, start, end int64, tempFile *os.File, chunkID int, wg *sync.WaitGroup, inputCh *chan CMEvent, responseCh *chan CMREvent) {
+func downloadChunk(url string, start, end int64, tempFile *os.File,
+	chunkID int, inputCh *chan CMEvent, responseCh *chan CMREvent,
+	rateLimit int64) {
 	// Create a new HTTP request with a range header
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -217,10 +217,17 @@ func downloadChunk(url string, start, end int64, tempFile *os.File, chunkID int,
 	defer resp.Body.Close()
 
 	// Use a buffered reader to read the response body
+	bufferSizeInBytes := int64(32 * 1024)
 	reader := bufio.NewReader(resp.Body)
-	buffer := make([]byte, 32*1024) // 32 KB buffer
+	buffer := make([]byte, bufferSizeInBytes) // 32 KB buffer
+
+	// Set up a ticker for rate limiting
+	ticker := time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes)) // Adjust based on buffer size
+	defer ticker.Stop()
 
 	for {
+		<-ticker.C
+
 		n, err := reader.Read(buffer)
 		if err != nil && err != io.EOF {
 			fmt.Printf("Error reading data: %v\n", err)
