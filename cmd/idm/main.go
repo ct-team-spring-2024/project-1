@@ -50,7 +50,37 @@ func t2() {
 	// mock the network component, so testing is limited.
 	internal.UpdaterWithCount(120)
 }
+func t3() {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	internal.InitState()
+	q := types.NewQueue(0)
+	d1 := types.NewDownload(0, q)
+	d2 := types.NewDownload(1, q)
+	q.MaxInProgressCount = 2
+	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	q.Destination = "./files"
+	internal.AddQueue(q)
+	d1.Filename = "downloaded-1.bin"
+	d2.Filename = "downloaded-2.bin"
+	d1.Url = "http://127.0.0.1:8080"
+	d2.Url = "http://127.0.0.1:8080"
+	internal.AddDownload(d1, q.Id)
+	internal.AddDownload(d2, q.Id)
+
+	//spew.Dump(internal.State)
+	// TODO: because of not having DI, we cannot
+	// mock the network component, so testing is limited.
+	slog.Info("Initial State =>")
+	spew.Dump(internal.State)
+	internal.UpdaterWithCount(120)
+}
 func main() {
 	// t1()
-	t2()
+	t3()
 }

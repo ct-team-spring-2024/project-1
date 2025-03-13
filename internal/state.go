@@ -64,7 +64,7 @@ func UpdaterWithCount(step int) {
 		// Some Queue/Download are added
 		updateState()
 		time.Sleep(1 * time.Second)
-		if i%5 == 0 {
+		if i % 5 == 0 {
 			slog.Info(fmt.Sprintf("================================================================================"))
 			slog.Info(fmt.Sprintf("State after step %d => ", i))
 			spew.Dump(State)
@@ -81,16 +81,18 @@ func updateState() {
 		updateDownloadStatus(d.Id, types.InProgress)
 		createDownloadManager(d.Id)
 		spew.Dump(State.downloadManagers)
-		queue, _ := FindQueue(d.Id)
+		queue, _ := State.Queues[d.QueueId]
 		go network.AsyncStartDownload(d, *queue, State.downloadManagers[d.Id].EventsChan, State.downloadManagers[d.Id].ResponseEventChan)
 		// setup listener for each of the generated downloads.
 		go func() {
 			for responseEvent := range State.downloadManagers[d.Id].ResponseEventChan {
 				switch responseEvent.Etype {
 				case network.Completed:
-					slog.Info(fmt.Sprintf("Response Event for %d => %s", d.Id, spew.Sdump(responseEvent)))
+					slog.Info(fmt.Sprintf("Response Event for %d => %v", d.Id, responseEvent))
+					updateDownloadStatus(d.Id, types.Completed)
 				case network.Failure:
-					slog.Info(fmt.Sprintf("Response Event for %d => %s", d.Id, spew.Sdump(responseEvent)))
+					slog.Info(fmt.Sprintf("Response Event for %d => %v", d.Id, responseEvent))
+					updateDownloadStatus(d.Id, types.Failed)
 				}
 			}
 		}()
@@ -103,10 +105,16 @@ func updateState() {
 }
 
 func updateDownloadStatus(id int, status types.DownloadStatus) {
+	oldStatus := State.Downloads[id].Status
 	State.Downloads[id].Status = status
+	// 1: Update CurrentInProgressCount
+	if oldStatus == types.InProgress && (status == types.Failed || status == types.Completed) {
+		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
+	}
 	if status == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount++
 	}
+	// 1: Update CurrentRetriesCnt
 	if status == types.Failed {
 		State.Downloads[id].CurrentRetriesCnt++
 	}

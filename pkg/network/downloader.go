@@ -175,7 +175,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				return
 			case finished:
 				doneChannels[cmrevent.id] = true
-				fmt.Printf("Chunk number %v is finished", cmrevent.id)
+				fmt.Printf("Chunk number %v is finished\n", cmrevent.id)
 			default:
 				slog.Error(fmt.Sprintf("unhandled type => %v", cmrevent))
 			}
@@ -189,7 +189,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				}
 			}
 			if done {
-				fmt.Print("Proccess finished")
+				fmt.Println("Proccess finished")
 				createFinalFile(absolutePath, tempFilePaths, chOut)
 				return
 			}
@@ -308,12 +308,13 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 
 func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- DMREvent) {
 	// Merge the temporary files into the final file
-	fmt.Println("creating file")
+	fmt.Printf("creating file %v\n", absolutePath)
 	finalFile, err := os.Create(absolutePath)
 	if err != nil {
 		chOut <- DMREvent{
 			Etype: Failure,
 		}
+		slog.Error(fmt.Sprintf("failed to create final file: %v %v", absolutePath, tempFilePaths))
 		slog.Error(fmt.Sprintf("failed to create final file: %v", err))
 		return
 	}
@@ -342,6 +343,9 @@ func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- D
 		os.Remove(tempFilePath)
 	}
 	fmt.Println("Download completed!")
+	chOut <- DMREvent{
+		Etype: Completed,
+	}
 }
 
 func waitForTerminatedEvents(respCh <-chan CMREvent, numOfChunks int, timeout time.Duration) error {
