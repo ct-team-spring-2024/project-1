@@ -22,20 +22,20 @@ const (
 
 type REType int
 
+type DMEvent struct {
+	Etype EType
+}
+
 const (
 	Completed REType = iota
 	Failure
 	InProgress
 )
 
-type DMEvent struct {
-	Etype EType
-	// TODO Add data fields for the event
-}
-
 type DMREvent struct {
 	Etype                   REType
-	CurrentChunksByteOffset map[int]int // only for inprogress
+	// only for inprogress
+	CurrentChunksByteOffset map[int]int
 }
 
 type DownloadManager struct {
@@ -49,31 +49,33 @@ type DownloadResult struct {
 	Err    error
 }
 
-type CMEtype int
-type CMREtype int
+type CMEType int
 
 const (
-	start CMEtype = iota
+	start CMEType = iota
 	finish
 )
 
+type CMEvent struct {
+	EType CMEType
+}
+
+type CMREType int
+
+type CMREvent struct {
+	EType           CMREType
+	chunkId         int
+	// Only for inProgress
+	chunkByteOffset int
+}
+
 const (
-	inProgress CMREtype = iota
+	inProgress CMREType = iota
 	paused
 	failed
 	finished
 	terminated
 )
-
-type CMEvent struct {
-	EType CMEtype
-}
-
-type CMREvent struct {
-	EType           CMREtype
-	chunkId         int
-	chunkByteOffset int // Only for inProgress
-}
 
 // TODO: On newConfig, all the current chunk places are stored in state.
 //	 Then given the new download, the chnuks managers are recreated.
