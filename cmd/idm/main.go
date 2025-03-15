@@ -78,7 +78,7 @@ func t3() {
 	// mock the network component, so testing is limited.
 	slog.Info("Initial State =>")
 	spew.Dump(internal.State)
-	internal.UpdaterWithCount(120)
+	internal.UpdaterWithCount(250)
 }
 func main() {
 	// t1()

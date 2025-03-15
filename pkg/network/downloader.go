@@ -25,6 +25,7 @@ type REType int
 const (
 	Completed REType = iota
 	Failure
+	InProgress
 )
 
 type DMEvent struct {
@@ -33,12 +34,14 @@ type DMEvent struct {
 }
 
 type DMREvent struct {
-	Etype REType
+	Etype                   REType
+	CurrentChunksByteOffset map[int]int // only for inprogress
 }
 
 type DownloadManager struct {
 	EventsChan        chan DMEvent
 	ResponseEventChan chan DMREvent
+	ChunksByteOffset  map[int]int
 }
 
 type DownloadResult struct {
@@ -67,12 +70,14 @@ type CMEvent struct {
 }
 
 type CMREvent struct {
-	EType CMREtype
-	id    int
+	EType           CMREtype
+	chunkId         int
+	chunkByteOffset int // Only for inProgress
 }
 
 // TODO: On newConfig, all the current chunk places are stored in state.
 //	 Then given the new download, the chnuks managers are recreated.
+// TODO: Because InProgress are frequent, maybe using buffered channel would help.
 func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	url := download.Url
 
@@ -101,15 +106,20 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 		slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
 		return
 	}
-
 	// Server supports range requests, proceed with chunked download
+
 	numChunks := 3
 	chunkSize := fileSize / int64(numChunks)
 	rateLimit := int64(1024 * 1024 * 10 / numChunks)
-
+	chunksByteOffset := make(map[int]int)
+	// TODO: chunksByteOffset should be given as a parameter to the function
+	for i := 0; i < numChunks; i++ {
+		chunksByteOffset[i] = 0
+	}
 	tempFiles := make([]*os.File, numChunks)
 	tempFilePaths := make([]string, numChunks)
 
+	// Starting Chunk Managers
 	inputChannels := make([]*chan CMEvent, 0)
 	respCh := make(chan CMREvent)
 	for i := 0; i < numChunks; i++ {
@@ -138,11 +148,14 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 
 	}
 	doneChannels := make([]bool, numChunks)
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
 	for {
 		select {
+		// incoming event from caller
 		case event := <-chIn:
-			// For each of the possible inputs, sent correct messages to the
-			// chunkManagers.
 			switch event.Etype {
 			case Startt:
 				// NOTHING
@@ -156,8 +169,15 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				// TODO: should we wait for stop successfully message from them?
 				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
 			}
+		// incoming event from Chunk Managers
 		case cmrevent := <-respCh:
 			switch cmrevent.EType {
+			case inProgress:
+				chunksByteOffset[cmrevent.chunkId] = cmrevent.chunkByteOffset
+				chOut <- DMREvent{
+					Etype: InProgress,
+					CurrentChunksByteOffset: chunksByteOffset,
+				}
 			case failed:
 				// stoping all chunks
 				for _, chInCM := range inputChannels {
@@ -172,22 +192,23 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				slog.Error(fmt.Sprintf("Failure in chunk managers"))
 				return
 			case finished:
-				doneChannels[cmrevent.id] = true
-				fmt.Printf("Chunk number %v is finished\n", cmrevent.id)
+				doneChannels[cmrevent.chunkId] = true
+				fmt.Printf("Chunk number %v is finished\n", cmrevent.chunkId)
 			default:
 				slog.Error(fmt.Sprintf("unhandled type => %v", cmrevent))
 			}
-		default:
-			time.Sleep(500 * time.Millisecond)
+		case <-ticker.C:
+			// This block runs every 500 milliseconds
 			fmt.Println("Woke up")
 			done := true
 			for i := 0; i < numChunks; i++ {
 				if !doneChannels[i] {
 					done = false
+					break
 				}
 			}
 			if done {
-				fmt.Println("Proccess finished")
+				fmt.Println("Process finished")
 				createFinalFile(absolutePath, tempFilePaths, chOut)
 				return
 			}
@@ -196,6 +217,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 }
 
 // TODO inputCh should be monitored
+// TODO Why channel type is pointer????
 func downloadChunk(url string, start, end int64, tempFile *os.File,
 	chunkID int, inputCh *chan CMEvent, responseCh *chan CMREvent,
 	rateLimit int64) {
@@ -236,15 +258,21 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 
 		if n > 0 {
 			_, err := tempFile.Write(buffer[:n])
-			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
 			if err != nil {
 				fmt.Printf("Error writing to temp file: %v\n", err)
 				return
 			}
+			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
+			// TODO if it blocks, then the download speed will be affected!
+			*responseCh <- CMREvent{
+				EType: inProgress,
+				chunkId: chunkID,
+				chunkByteOffset: n, // OK??
+			}
 		}
 
 		if err == io.EOF {
-			*responseCh <- CMREvent{EType: finished, id: chunkID}
+			*responseCh <- CMREvent{EType: finished, chunkId: chunkID}
 			break
 		}
 	}
@@ -368,7 +396,7 @@ func waitForTerminatedEvents(respCh <-chan CMREvent, numOfChunks int, timeout ti
 			}
 			if event.EType == terminated {
 				count++
-				fmt.Printf("Received terminated event #%d (ID: %d)\n", count, event.id)
+				fmt.Printf("Received terminated event #%d (ID: %d)\n", count, event.chunkId)
 				if count >= numOfChunks {
 					return nil
 				}
