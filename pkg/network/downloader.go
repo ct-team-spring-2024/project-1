@@ -110,7 +110,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 
 	numChunks := 3
 	chunkSize := fileSize / int64(numChunks)
-	rateLimit := int64(1024 * 1024 * 10 / numChunks)
+	rateLimit := int64(1024 * 1024 * 2 / numChunks)
 	chunksByteOffset := make(map[int]int)
 	// TODO: chunksByteOffset should be given as a parameter to the function
 	for i := 0; i < numChunks; i++ {
@@ -247,6 +247,8 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 	ticker := time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes)) // Adjust based on buffer size
 	defer ticker.Stop()
 
+	totalBytesRead := 0
+
 	for {
 		<-ticker.C
 
@@ -263,11 +265,13 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 				return
 			}
 			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
+
+			totalBytesRead += n
 			// TODO if it blocks, then the download speed will be affected!
 			*responseCh <- CMREvent{
 				EType: inProgress,
 				chunkId: chunkID,
-				chunkByteOffset: n, // OK??
+				chunkByteOffset: totalBytesRead, // OK??
 			}
 		}
 
