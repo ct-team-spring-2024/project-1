@@ -30,10 +30,10 @@ type ReconfigDMData struct {
 	newMaxBandwidth int
 }
 
-func NewReconfigDMEvent (newMaxBandwidth int) DMEvent {
+func NewReconfigDMEvent(newMaxBandwidth int) DMEvent {
 	return DMEvent{
 		EType: Reconfig,
-		Data:  ReconfigDMData{
+		Data: ReconfigDMData{
 			newMaxBandwidth: newMaxBandwidth,
 		},
 	}
@@ -48,7 +48,7 @@ const (
 )
 
 type DMREvent struct {
-	EType                   REType
+	EType REType
 	// only for inprogress
 	CurrentChunksByteOffset map[int]int
 }
@@ -65,6 +65,7 @@ type DownloadResult struct {
 }
 
 type CMEType int
+
 const (
 	start CMEType = iota
 	finish
@@ -80,10 +81,10 @@ type ReconfigCMData struct {
 	newMaxBandwidth int
 }
 
-func NewReconfigCMEvent (newMaxBandwidth int) CMEvent {
+func NewReconfigCMEvent(newMaxBandwidth int) CMEvent {
 	return CMEvent{
 		EType: reconfig,
-		Data:  ReconfigCMData{
+		Data: ReconfigCMData{
 			newMaxBandwidth: newMaxBandwidth,
 		},
 	}
@@ -92,8 +93,8 @@ func NewReconfigCMEvent (newMaxBandwidth int) CMEvent {
 type CMREType int
 
 type CMREvent struct {
-	EType           CMREType
-	chunkId         int
+	EType   CMREType
+	chunkId int
 	// Only for inProgress
 	chunkByteOffset int
 }
@@ -107,7 +108,9 @@ const (
 )
 
 // TODO: On newConfig, all the current chunk places are stored in state.
-//	 Then given the new download, the chnuks managers are recreated.
+//
+//	Then given the new download, the chnuks managers are recreated.
+//
 // TODO: Because InProgress are frequent, maybe using buffered channel would help.
 func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	url := download.Url
@@ -123,11 +126,14 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 		headError = true
 		slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
 	}
+	var acceptsRanges bool
 	if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
 		fmt.Println("Server does not support range requests. Downloading the entire file.")
+		acceptsRanges = false
 		// TODO: chIn to the downloader?
-		downloadEntireFile(url, absolutePath, chIn, chOut)
-		return
+
+		//	downloadEntireFile(url, absolutePath, chIn, chOut)
+		//	return
 	}
 
 	fileSize := resp.ContentLength
@@ -141,6 +147,10 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	// Server supports range requests, proceed with chunked download
 
 	numChunks := 3
+	//If server did not accept ranges , just sets the chunks number to one , the rest is basically the same
+	if !acceptsRanges {
+		numChunks = 1
+	}
 	chunkSize := fileSize / int64(numChunks)
 	rateLimit := int64(queue.MaxBandwidth / numChunks)
 	chunksByteOffset := make(map[int]int)
@@ -212,7 +222,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 			case inProgress:
 				chunksByteOffset[cmrevent.chunkId] = cmrevent.chunkByteOffset
 				chOut <- DMREvent{
-					EType: InProgress,
+					EType:                   InProgress,
 					CurrentChunksByteOffset: chunksByteOffset,
 				}
 			case failed:
@@ -329,8 +339,8 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 			totalBytesRead += n
 			// TODO if it blocks, then the download speed will be affected!
 			*responseCh <- CMREvent{
-				EType: inProgress,
-				chunkId: chunkID,
+				EType:           inProgress,
+				chunkId:         chunkID,
 				chunkByteOffset: totalBytesRead, // OK??
 			}
 		}
