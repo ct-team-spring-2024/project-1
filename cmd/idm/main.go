@@ -105,12 +105,41 @@ func t4ChangingConfiguration() {
 	slog.Info("Initial State =>")
 	spew.Dump(internal.State)
 	eventsMap := make(map[int][]internal.IDMEvent)
-	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, 5 * 1024 * 1024)}
+	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, 5*1024*1024)}
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
+	internal.UpdaterWithCount(250, eventsMap)
+}
+func t5TestingPauseAndResume() {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	internal.InitState()
+	q := types.NewQueue(0)
+	d1 := types.NewDownload(0, q)
+	q.MaxInProgressCount = 1
+	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	//	q.Destination = "./files"
+	q.MaxBandwidth = 10 * 1024 * 1024
+	internal.AddQueue(q)
+	d1.Filename = "downloaded.bin"
+	d1.Url = "http://127.0.0.1:8080"
+	internal.AddDownload(d1, q.Id)
+
+	slog.Info("Initial State =>")
+	spew.Dump(internal.State)
+	eventsMap := make(map[int][]internal.IDMEvent)
+	eventsMap[10] = []internal.IDMEvent{internal.NewPauseDownloadEvent(0)}
+	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
+
 	internal.UpdaterWithCount(250, eventsMap)
 }
 
 func main() {
 	// t1()
-	t4ChangingConfiguration()
+	//	t4ChangingConfiguration()
+	t5TestingPauseAndResume()
 }

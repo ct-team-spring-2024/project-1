@@ -24,6 +24,7 @@ type Download struct {
 	CurrentRetriesCnt      int
 	QueueId                int
 	CurrnetDownloadOffsets []int64
+	ServerAcceptsRanges    bool
 }
 
 func NewDownload(id int, q Queue) Download {

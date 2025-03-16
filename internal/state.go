@@ -2,21 +2,20 @@ package internal
 
 import (
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
 
 	"go-idm/pkg/network"
 	"go-idm/types"
 )
 
-
-
 type AppState struct {
-	mu               sync.Mutex
-	Queues           map[int]*types.Queue
-	Downloads        map[int]*types.Download
+	mu        sync.Mutex
+	Queues    map[int]*types.Queue
+	Downloads map[int]*types.Download
 	// TODO Now download managers are killed if not running.
 	//      But stroing the bytes offset means they should be not.
 	downloadManagers map[int]*network.DownloadManager
@@ -26,8 +25,8 @@ var State *AppState
 
 func InitState() {
 	State = &AppState{
-		Queues: make(map[int]*types.Queue),
-		Downloads: make(map[int]*types.Download),
+		Queues:           make(map[int]*types.Queue),
+		Downloads:        make(map[int]*types.Download),
 		downloadManagers: make(map[int]*network.DownloadManager),
 	}
 }
@@ -75,7 +74,7 @@ func UpdaterWithCount(step int, events map[int][]IDMEvent) {
 		// Some Queue/Download are added
 		updateState(events[i])
 		time.Sleep(1 * time.Second)
-		if i % 5 == 0 {
+		if i%5 == 0 {
 			slog.Info(fmt.Sprintf("================================================================================"))
 			slog.Info(fmt.Sprintf("State after step %d => ", i))
 			spew.Dump(State)
@@ -95,7 +94,21 @@ func updateState(events []IDMEvent) {
 			dm := State.downloadManagers[data.queueId]
 			dm.EventsChan <- network.NewReconfigDMEvent(data.newMaxBandwidth) // TODO follow!!!
 		case PauseDownloadEvent:
+			//If the server accept ranges , then you can just pass a new one with chunks being there
+			// if not Download cannot be continued and the file should be removed
+			slog.Info(fmt.Sprintf("Pausing the download ----------------------------------------------------------------"))
+			data := e.Data.(PauseDownloadEventData)
+			id := data.DownloadID
+			slog.Info(fmt.Sprintf("Download id is %v", id))
+			updateDownloadStatus(id, types.Paused)
+			slog.Info(fmt.Sprintf("Pausing the download ----------------------------------------------------------------"))
+
 		case ResumeDownloadEvent:
+			data := e.Data.(ResumeDownloadEventData)
+			id := data.DownloadID
+			updateDownloadStatus(id, types.InProgress)
+			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Resume}
+
 		case DeleteDownloadEvent:
 		}
 	}
@@ -108,7 +121,7 @@ func updateState(events []IDMEvent) {
 		chIn, chOut := getChannel(d.Id)
 		queue := getQueue(d.Id)
 		slog.Debug(fmt.Sprintf("candidates => %v %v %v %v", d, *queue, chIn, chOut))
-		go network.AsyncStartDownload(d, *queue, chIn, chOut)
+		go network.AsyncStartDownload(&d, queue, chIn, chOut)
 		// setup listener for each of the generated downloads.
 		go func() {
 			for responseEvent := range chOut {
@@ -132,7 +145,8 @@ func updateState(events []IDMEvent) {
 }
 
 // TODO: This is unneccessery contention! Because we are storing the chans in a
-//       map, then we have to lock.
+//
+//	map, then we have to lock.
 func getChannel(id int) (chan network.DMEvent, chan network.DMREvent) {
 	State.mu.Lock()
 
@@ -166,6 +180,13 @@ func updateDownloadStatus(id int, status types.DownloadStatus) {
 	if oldStatus == types.InProgress && (status == types.Failed || status == types.Completed) {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
 	}
+	if oldStatus == types.InProgress && status == types.Paused {
+		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
+		slog.Info("Sent the signal to downloader")
+		State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Pause}
+		slog.Info("Sent the signal to downloader")
+	}
+
 	if status == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount++
 	}
@@ -177,6 +198,15 @@ func updateDownloadStatus(id int, status types.DownloadStatus) {
 	slog.Info("Update done")
 
 	State.mu.Unlock()
+}
+func ResumeDownload(id int) {
+	download := State.Downloads[id]
+	queue := State.Queues[download.QueueId]
+	if queue.CurrentInProgressCount < queue.MaxInProgressCount {
+		queue.CurrentInProgressCount++
+		ch := State.downloadManagers[id].EventsChan
+		ch <- network.DMEvent{EType: network.Resume}
+	}
 }
 
 func updateDMChunksByteOffset(downloadId int, currentChunksByteOffset map[int]int) {
@@ -195,7 +225,6 @@ func createDownloadManager(downloadId int) {
 		ResponseEventChan: make(chan network.DMREvent),
 	}
 	State.downloadManagers[downloadId] = &downloadManager
-
 
 	State.mu.Unlock()
 }

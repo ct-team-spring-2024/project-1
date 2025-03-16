@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+
 	// "net/url"
 	"os"
 	"path/filepath"
@@ -18,6 +19,8 @@ type EType int
 const (
 	Startt EType = iota
 	Stopp
+	Pause
+	Resume
 	Reconfig
 )
 
@@ -69,6 +72,8 @@ type CMEType int
 const (
 	start CMEType = iota
 	finish
+	pause
+	resume
 	reconfig
 )
 
@@ -112,7 +117,7 @@ const (
 //	Then given the new download, the chnuks managers are recreated.
 //
 // TODO: Because InProgress are frequent, maybe using buffered channel would help.
-func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan DMEvent, chOut chan<- DMREvent) {
+func AsyncStartDownload(download *types.Download, queue *types.Queue, chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	url := download.Url
 
 	absolutePath := filepath.Join(queue.Destination, download.Filename)
@@ -126,10 +131,10 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 		headError = true
 		slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
 	}
-	var acceptsRanges bool
+
 	if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
 		fmt.Println("Server does not support range requests. Downloading the entire file.")
-		acceptsRanges = false
+		download.ServerAcceptsRanges = false
 		// TODO: chIn to the downloader?
 
 		//	downloadEntireFile(url, absolutePath, chIn, chOut)
@@ -148,7 +153,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 
 	numChunks := 3
 	//If server did not accept ranges , just sets the chunks number to one , the rest is basically the same
-	if !acceptsRanges {
+	if !download.ServerAcceptsRanges {
 		numChunks = 1
 	}
 	chunkSize := fileSize / int64(numChunks)
@@ -193,74 +198,95 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+	go func() {
+		for {
 
-	for {
-		select {
-		// incoming event from caller
-		case event := <-chIn:
-			switch event.EType {
-			case Startt:
-				// NOTHING
-			case Stopp:
-				// send stop to all chunk managers
-				for _, chInCM := range inputChannels {
-					*chInCM <- CMEvent{
-						EType: finish,
+			select {
+			// incoming event from caller
+
+			case event := <-chIn:
+				fmt.Println("Recieved Pause message")
+				slog.Info("Recieved Pause message")
+				switch event.EType {
+				case Startt:
+					// NOTHING
+				case Stopp:
+					// send stop to all chunk managers
+					for _, chInCM := range inputChannels {
+						*chInCM <- CMEvent{
+							EType: finish,
+						}
+					}
+				case Pause:
+					fmt.Println("Recieved Pause message")
+					slog.Info("Recieved Pause message")
+					for _, chInCM := range inputChannels {
+						slog.Info(fmt.Sprintf("Sent message to chunks"))
+						*chInCM <- CMEvent{
+							EType: pause,
+						}
+					}
+				case Resume:
+					for _, chInCM := range inputChannels {
+						*chInCM <- CMEvent{
+							EType: resume,
+						}
+					}
+					// TODO: should we wait for stop successfully message from them?
+					waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
+				case Reconfig:
+					data := event.Data.(ReconfigDMData)
+					for i := 0; i < numChunks; i++ {
+						*inputChannels[i] <- NewReconfigCMEvent(data.newMaxBandwidth)
 					}
 				}
-				// TODO: should we wait for stop successfully message from them?
-				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
-			case Reconfig:
-				data := event.Data.(ReconfigDMData)
+			// incoming event from Chunk Managers
+			case cmrevent := <-respCh:
+				switch cmrevent.EType {
+				case inProgress:
+					chunksByteOffset[cmrevent.chunkId] = cmrevent.chunkByteOffset
+					chOut <- DMREvent{
+						EType:                   InProgress,
+						CurrentChunksByteOffset: chunksByteOffset,
+					}
+				case failed:
+					// stoping all chunks
+					for _, chInCM := range inputChannels {
+						*chInCM <- CMEvent{
+							EType: finish,
+						}
+					}
+					waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
+					chOut <- DMREvent{
+						EType: Failure,
+					}
+					slog.Error(fmt.Sprintf("Failure in chunk managers"))
+					return
+				case finished:
+					doneChannels[cmrevent.chunkId] = true
+					fmt.Printf("Chunk number %v is finished\n", cmrevent.chunkId)
+				default:
+					slog.Error(fmt.Sprintf("unhandled type => %v", cmrevent))
+				}
+			case <-ticker.C:
+				// This block runs every 500 milliseconds
+				fmt.Println("Woke up")
+
+				done := true
 				for i := 0; i < numChunks; i++ {
-					*inputChannels[i] <- NewReconfigCMEvent(data.newMaxBandwidth)
-				}
-			}
-		// incoming event from Chunk Managers
-		case cmrevent := <-respCh:
-			switch cmrevent.EType {
-			case inProgress:
-				chunksByteOffset[cmrevent.chunkId] = cmrevent.chunkByteOffset
-				chOut <- DMREvent{
-					EType:                   InProgress,
-					CurrentChunksByteOffset: chunksByteOffset,
-				}
-			case failed:
-				// stoping all chunks
-				for _, chInCM := range inputChannels {
-					*chInCM <- CMEvent{
-						EType: finish,
+					if !doneChannels[i] {
+						done = false
+						break
 					}
 				}
-				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
-				chOut <- DMREvent{
-					EType: Failure,
+				if done {
+					fmt.Println("Process finished")
+					createFinalFile(absolutePath, tempFilePaths, chOut)
+					return
 				}
-				slog.Error(fmt.Sprintf("Failure in chunk managers"))
-				return
-			case finished:
-				doneChannels[cmrevent.chunkId] = true
-				fmt.Printf("Chunk number %v is finished\n", cmrevent.chunkId)
-			default:
-				slog.Error(fmt.Sprintf("unhandled type => %v", cmrevent))
-			}
-		case <-ticker.C:
-			// This block runs every 500 milliseconds
-			fmt.Println("Woke up")
-			done := true
-			for i := 0; i < numChunks; i++ {
-				if !doneChannels[i] {
-					done = false
-					break
-				}
-			}
-			if done {
-				fmt.Println("Process finished")
-				createFinalFile(absolutePath, tempFilePaths, chOut)
-				return
 			}
 		}
-	}
+	}()
 }
 
 // TODO inputCh should be monitored
@@ -311,43 +337,60 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 					slog.Warn("Invalid reconfig event data")
 					continue
 				}
-
 				newRateLimit := int64(data.newMaxBandwidth)
 				slog.Debug(fmt.Sprintf("Received reconfig event with new rate limit: %v bytes/sec", newRateLimit))
 				updateTicker(newRateLimit)
 			}
 		}
 	}()
-
+outerLoop:
 	for {
-		<-ticker.C
+		select {
+		case event := <-*inputCh:
+			if event.EType == pause {
+				//wait for the next event to come
+				slog.Info(fmt.Sprintf("Stopped the chunk downloader"))
+				e := <-*inputCh
+				if e.EType == resume {
+					continue
+				}
+				if e.EType == finish {
+					return
+				} else {
+					slog.Error(fmt.Sprintf("unhandled Error %v", e))
+				}
 
-		n, err := reader.Read(buffer)
-		if err != nil && err != io.EOF {
-			fmt.Printf("Error reading data: %v\n", err)
-			return
-		}
+			}
 
-		if n > 0 {
-			_, err := tempFile.Write(buffer[:n])
-			if err != nil {
-				fmt.Printf("Error writing to temp file: %v\n", err)
+		case <-ticker.C:
+
+			n, err := reader.Read(buffer)
+			if err != nil && err != io.EOF {
+				fmt.Printf("Error reading data: %v\n", err)
 				return
 			}
-			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
 
-			totalBytesRead += n
-			// TODO if it blocks, then the download speed will be affected!
-			*responseCh <- CMREvent{
-				EType:           inProgress,
-				chunkId:         chunkID,
-				chunkByteOffset: totalBytesRead, // OK??
+			if n > 0 {
+				_, err := tempFile.Write(buffer[:n])
+				if err != nil {
+					fmt.Printf("Error writing to temp file: %v\n", err)
+					return
+				}
+				slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
+
+				totalBytesRead += n
+				// TODO if it blocks, then the download speed will be affected!
+				*responseCh <- CMREvent{
+					EType:           inProgress,
+					chunkId:         chunkID,
+					chunkByteOffset: totalBytesRead, // OK??
+				}
 			}
-		}
 
-		if err == io.EOF {
-			*responseCh <- CMREvent{EType: finished, chunkId: chunkID}
-			break
+			if err == io.EOF {
+				*responseCh <- CMREvent{EType: finished, chunkId: chunkID}
+				break outerLoop
+			}
 		}
 	}
 
