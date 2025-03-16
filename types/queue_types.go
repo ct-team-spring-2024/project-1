@@ -16,7 +16,7 @@ type Queue struct {
 	MaxRetriesCount        int
 	Destination            string
 	ActiveInterval         TimeInterval
-	MaxBandwidth           float32 // In Byte
+	MaxBandwidth           int // In Byte
 }
 
 func NewQueue(id int) Queue {

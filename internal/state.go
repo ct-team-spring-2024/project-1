@@ -11,6 +11,8 @@ import (
 	"go-idm/types"
 )
 
+
+
 type AppState struct {
 	mu               sync.Mutex
 	Queues           map[int]*types.Queue
@@ -68,10 +70,10 @@ func findInPrpgressCandidates() []types.Download {
 	return result
 }
 
-func UpdaterWithCount(step int) {
+func UpdaterWithCount(step int, events map[int][]IDMEvent) {
 	for i := 0; i < step; i++ {
 		// Some Queue/Download are added
-		updateState()
+		updateState(events[i])
 		time.Sleep(1 * time.Second)
 		if i % 5 == 0 {
 			slog.Info(fmt.Sprintf("================================================================================"))
@@ -81,7 +83,23 @@ func UpdaterWithCount(step int) {
 	}
 }
 
-func updateState() {
+func updateState(events []IDMEvent) {
+	// 1. Process new events sent by user.
+	//    Send the new configuration using the chIn.
+	for _, e := range events {
+		switch e.EType {
+		case AddQueueEvent:
+		case ModifyQueueEvent:
+			data := e.Data.(ModifyQueueEventData)
+			slog.Info(fmt.Sprintf("Modify Event => %v", data))
+			dm := State.downloadManagers[data.queueId]
+			dm.EventsChan <- network.NewReconfigDMEvent(data.newMaxBandwidth) // TODO follow!!!
+		case PauseDownloadEvent:
+		case ResumeDownloadEvent:
+		case DeleteDownloadEvent:
+		}
+	}
+	// 2. Fire up new candidates
 	var inProgressCandidates []types.Download
 	inProgressCandidates = findInPrpgressCandidates()
 	for _, d := range inProgressCandidates {
@@ -89,7 +107,7 @@ func updateState() {
 		createDownloadManager(d.Id)
 		chIn, chOut := getChannel(d.Id)
 		queue := getQueue(d.Id)
-		slog.Info(fmt.Sprintf("candidates => %v %v %v %v", d, *queue, chIn, chOut))
+		slog.Debug(fmt.Sprintf("candidates => %v %v %v %v", d, *queue, chIn, chOut))
 		go network.AsyncStartDownload(d, *queue, chIn, chOut)
 		// setup listener for each of the generated downloads.
 		go func() {
@@ -97,7 +115,7 @@ func updateState() {
 				// Motherfucker! this log caused the concurrent access error.
 				// (because the log uses the responseEvent in a async way, but it is also processed after ward!)
 				// slog.Info(fmt.Sprintf("Response Event for %d => %+v", d.Id, responseEvent))
-				switch responseEvent.Etype {
+				switch responseEvent.EType {
 				case network.Completed:
 					slog.Debug(fmt.Sprintf("DMR : Completed %d", d.Id))
 					updateDownloadStatus(d.Id, types.Completed)
@@ -110,10 +128,6 @@ func updateState() {
 				}
 			}
 		}()
-		// go DownloadManagerHandler(d.Id, State.downloadManagers[d.Id].eventsChan, State.downloadManagers[d.Id].responseEventChan)
-		// State.downloadManagers[d.Id].EventsChan <- network.DMEvent{
-		//	Etype: network.Startt,
-		// }
 	}
 }
 

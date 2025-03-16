@@ -18,13 +18,28 @@ type EType int
 const (
 	Startt EType = iota
 	Stopp
+	Reconfig
 )
 
-type REType int
-
 type DMEvent struct {
-	Etype EType
+	EType EType
+	Data  interface{}
 }
+
+type ReconfigDMData struct {
+	newMaxBandwidth int
+}
+
+func NewReconfigDMEvent (newMaxBandwidth int) DMEvent {
+	return DMEvent{
+		EType: Reconfig,
+		Data:  ReconfigDMData{
+			newMaxBandwidth: newMaxBandwidth,
+		},
+	}
+}
+
+type REType int
 
 const (
 	Completed REType = iota
@@ -33,7 +48,7 @@ const (
 )
 
 type DMREvent struct {
-	Etype                   REType
+	EType                   REType
 	// only for inprogress
 	CurrentChunksByteOffset map[int]int
 }
@@ -50,14 +65,28 @@ type DownloadResult struct {
 }
 
 type CMEType int
-
 const (
 	start CMEType = iota
 	finish
+	reconfig
 )
 
 type CMEvent struct {
 	EType CMEType
+	Data  interface{}
+}
+
+type ReconfigCMData struct {
+	newMaxBandwidth int
+}
+
+func NewReconfigCMEvent (newMaxBandwidth int) CMEvent {
+	return CMEvent{
+		EType: reconfig,
+		Data:  ReconfigCMData{
+			newMaxBandwidth: newMaxBandwidth,
+		},
+	}
 }
 
 type CMREType int
@@ -96,6 +125,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	}
 	if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
 		fmt.Println("Server does not support range requests. Downloading the entire file.")
+		// TODO: chIn to the downloader?
 		downloadEntireFile(url, absolutePath, chIn, chOut)
 		return
 	}
@@ -103,7 +133,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	fileSize := resp.ContentLength
 	if fileSize <= 0 {
 		chOut <- DMREvent{
-			Etype: Failure,
+			EType: Failure,
 		}
 		slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
 		return
@@ -112,7 +142,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 
 	numChunks := 3
 	chunkSize := fileSize / int64(numChunks)
-	rateLimit := int64(1024 * 1024 * 2 / numChunks)
+	rateLimit := int64(queue.MaxBandwidth / numChunks)
 	chunksByteOffset := make(map[int]int)
 	// TODO: chunksByteOffset should be given as a parameter to the function
 	for i := 0; i < numChunks; i++ {
@@ -138,7 +168,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 		tempFile, err := os.CreateTemp("", fmt.Sprintf("chunk-%d-", i))
 		if err != nil {
 			chOut <- DMREvent{
-				Etype: Failure,
+				EType: Failure,
 			}
 			slog.Error(fmt.Sprintf("failed to create temp file: %v", err))
 			return
@@ -158,7 +188,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 		select {
 		// incoming event from caller
 		case event := <-chIn:
-			switch event.Etype {
+			switch event.EType {
 			case Startt:
 				// NOTHING
 			case Stopp:
@@ -170,6 +200,11 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				}
 				// TODO: should we wait for stop successfully message from them?
 				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
+			case Reconfig:
+				data := event.Data.(ReconfigDMData)
+				for i := 0; i < numChunks; i++ {
+					*inputChannels[i] <- NewReconfigCMEvent(data.newMaxBandwidth)
+				}
 			}
 		// incoming event from Chunk Managers
 		case cmrevent := <-respCh:
@@ -177,7 +212,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 			case inProgress:
 				chunksByteOffset[cmrevent.chunkId] = cmrevent.chunkByteOffset
 				chOut <- DMREvent{
-					Etype: InProgress,
+					EType: InProgress,
 					CurrentChunksByteOffset: chunksByteOffset,
 				}
 			case failed:
@@ -189,7 +224,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				}
 				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
 				chOut <- DMREvent{
-					Etype: Failure,
+					EType: Failure,
 				}
 				slog.Error(fmt.Sprintf("Failure in chunk managers"))
 				return
@@ -244,12 +279,35 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 	bufferSizeInBytes := int64(32 * 1024)
 	reader := bufio.NewReader(resp.Body)
 	buffer := make([]byte, bufferSizeInBytes) // 32 KB buffer
+	totalBytesRead := 0
 
 	// Set up a ticker for rate limiting
 	ticker := time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes)) // Adjust based on buffer size
 	defer ticker.Stop()
+	updateTicker := func(newRateLimit int64) {
+		ticker.Stop() // Stop the existing ticker
 
-	totalBytesRead := 0
+		rateLimit = newRateLimit
+		ticker = time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes))
+		slog.Debug(fmt.Sprintf("Updated ticker interval to %v bytes/sec", rateLimit))
+	}
+
+	// Goroutine to handle reconfiguration events
+	go func() {
+		for event := range *inputCh {
+			if event.EType == reconfig {
+				data, ok := event.Data.(ReconfigCMData)
+				if !ok {
+					slog.Warn("Invalid reconfig event data")
+					continue
+				}
+
+				newRateLimit := int64(data.newMaxBandwidth)
+				slog.Debug(fmt.Sprintf("Received reconfig event with new rate limit: %v bytes/sec", newRateLimit))
+				updateTicker(newRateLimit)
+			}
+		}
+	}()
 
 	for {
 		<-ticker.C
@@ -295,7 +353,7 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 	slog.Info(fmt.Sprintf("raw => %s", rawurl))
 	if err != nil {
 		chOut <- DMREvent{
-			Etype: Failure,
+			EType: Failure,
 		}
 		slog.Error(fmt.Sprintf("HTTP GET failed: %v", err))
 		return
@@ -305,7 +363,7 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 	file, err := os.Create(filePath)
 	if err != nil {
 		chOut <- DMREvent{
-			Etype: Failure,
+			EType: Failure,
 		}
 		slog.Error(fmt.Sprintf("failed to create file: %v", err))
 		return
@@ -322,7 +380,7 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 			n, err := reader.Read(buffer)
 			if err != nil && err != io.EOF {
 				chOut <- DMREvent{
-					Etype: Failure,
+					EType: Failure,
 				}
 				slog.Error(fmt.Sprintf("Error reading data: %v\n", err))
 				return
@@ -332,7 +390,7 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 				_, err := file.Write(buffer[:n])
 				if err != nil {
 					chOut <- DMREvent{
-						Etype: Failure,
+						EType: Failure,
 					}
 					slog.Error(fmt.Sprintf("Error writing to temp file: %v\n", err))
 					return
@@ -353,7 +411,7 @@ func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- D
 	finalFile, err := os.Create(absolutePath)
 	if err != nil {
 		chOut <- DMREvent{
-			Etype: Failure,
+			EType: Failure,
 		}
 		slog.Error(fmt.Sprintf("failed to create final file: %v %v", absolutePath, tempFilePaths))
 		slog.Error(fmt.Sprintf("failed to create final file: %v", err))
@@ -365,7 +423,7 @@ func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- D
 		tempFile, err := os.Open(tempFilePath)
 		if err != nil {
 			chOut <- DMREvent{
-				Etype: Failure,
+				EType: Failure,
 			}
 			slog.Error(fmt.Sprintf("failed to open temp file: %v", err))
 			return
@@ -375,7 +433,7 @@ func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- D
 		tempFile.Close()
 		if err != nil {
 			chOut <- DMREvent{
-				Etype: Failure,
+				EType: Failure,
 			}
 			slog.Error(fmt.Sprintf("failed to merge temp file: %v", err))
 			return
@@ -385,7 +443,7 @@ func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- D
 	}
 	fmt.Println("Download completed!")
 	chOut <- DMREvent{
-		Etype: Completed,
+		EType: Completed,
 	}
 }
 
