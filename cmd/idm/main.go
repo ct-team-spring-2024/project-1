@@ -94,8 +94,8 @@ func t4ChangingConfiguration() {
 	q := types.NewQueue(0)
 	d1 := types.NewDownload(0, q)
 	q.MaxInProgressCount = 1
-	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
-	q.Destination = "./files"
+	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	//	q.Destination = "./files"
 	q.MaxBandwidth = 10 * 1024 * 1024
 	internal.AddQueue(q)
 	d1.Filename = "downloaded.bin"
@@ -133,6 +133,7 @@ func t5TestingPauseAndResume() {
 	spew.Dump(internal.State)
 	eventsMap := make(map[int][]internal.IDMEvent)
 	eventsMap[10] = []internal.IDMEvent{internal.NewPauseDownloadEvent(0)}
+	eventsMap[20] = []internal.IDMEvent{internal.NewResumeDownloadEvent(0)}
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 
 	internal.UpdaterWithCount(250, eventsMap)
@@ -140,6 +141,6 @@ func t5TestingPauseAndResume() {
 
 func main() {
 	// t1()
-	//	t4ChangingConfiguration()
+	//t4ChangingConfiguration()
 	t5TestingPauseAndResume()
 }
