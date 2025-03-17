@@ -94,6 +94,7 @@ func updateState(events []IDMEvent) {
 			slog.Info(fmt.Sprintf("Modify Event => %v", data))
 			dm := State.downloadManagers[data.queueId]
 			dm.EventsChan <- network.NewReconfigDMEvent(data.newMaxBandwidth) // TODO follow!!!
+			slog.Info("Modify Event End")
 		case PauseDownloadEvent:
 		case ResumeDownloadEvent:
 		case DeleteDownloadEvent:

@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
+
 	// "net/url"
 	"os"
 	"path/filepath"
@@ -201,10 +203,12 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				// TODO: should we wait for stop successfully message from them?
 				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
 			case Reconfig:
+				slog.Info("RECONFIG REC")
 				data := event.Data.(ReconfigDMData)
 				for i := 0; i < numChunks; i++ {
-					*inputChannels[i] <- NewReconfigCMEvent(data.newMaxBandwidth)
+					*inputChannels[i] <- NewReconfigCMEvent(data.newMaxBandwidth / numChunks)
 				}
+				slog.Info("RECONFIG REC END")
 			}
 		// incoming event from Chunk Managers
 		case cmrevent := <-respCh:
@@ -282,20 +286,28 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 	totalBytesRead := 0
 
 	// Set up a ticker for rate limiting
+	var tickerMu sync.Mutex
+
 	ticker := time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes)) // Adjust based on buffer size
 	defer ticker.Stop()
+
 	updateTicker := func(newRateLimit int64) {
+		tickerMu.Lock()
+
 		ticker.Stop() // Stop the existing ticker
 
 		rateLimit = newRateLimit
 		ticker = time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes))
-		slog.Debug(fmt.Sprintf("Updated ticker interval to %v bytes/sec", rateLimit))
+		slog.Info(fmt.Sprintf("Updated ticker interval to %v bytes/sec", rateLimit))
+
+		tickerMu.Unlock()
 	}
 
 	// Goroutine to handle reconfiguration events
 	go func() {
 		for event := range *inputCh {
 			if event.EType == reconfig {
+				slog.Info("reconfig start")
 				data, ok := event.Data.(ReconfigCMData)
 				if !ok {
 					slog.Warn("Invalid reconfig event data")
@@ -305,12 +317,18 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 				newRateLimit := int64(data.newMaxBandwidth)
 				slog.Debug(fmt.Sprintf("Received reconfig event with new rate limit: %v bytes/sec", newRateLimit))
 				updateTicker(newRateLimit)
+				slog.Info("reconfig end")
+
 			}
 		}
 	}()
 
 	for {
+		tickerMu.Lock()
 		<-ticker.C
+		tickerMu.Unlock()
+
+		// slog.Info("Tick, Motherfucker!")
 
 		n, err := reader.Read(buffer)
 		if err != nil && err != io.EOF {

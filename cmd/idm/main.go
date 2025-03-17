@@ -105,7 +105,7 @@ func t4ChangingConfiguration() {
 	slog.Info("Initial State =>")
 	spew.Dump(internal.State)
 	eventsMap := make(map[int][]internal.IDMEvent)
-	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, 5 * 1024 * 1024)}
+	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, 3 * 1024 * 1024)}
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 	internal.UpdaterWithCount(250, eventsMap)
 }
