@@ -101,12 +101,12 @@ func updateState(events []IDMEvent) {
 			id := data.DownloadID
 			slog.Info(fmt.Sprintf("Download id is %v", id))
 			updateDownloadStatus(id, types.Paused)
-			slog.Info(fmt.Sprintf("Pausing the download ----------------------------------------------------------------"))
-
+			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Pause}
 		case ResumeDownloadEvent:
 			data := e.Data.(ResumeDownloadEventData)
 			id := data.DownloadID
 			updateDownloadStatus(id, types.InProgress)
+			fmt.Println("finished updating status")
 			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Resume}
 
 		case DeleteDownloadEvent:
@@ -169,6 +169,7 @@ func getQueue(id int) *types.Queue {
 }
 
 func updateDownloadStatus(id int, status types.DownloadStatus) {
+	//DO NOT pass anything o channels when mutex is locked , it causes deadlock
 	State.mu.Lock()
 
 	oldStatus := State.Downloads[id].Status
@@ -183,7 +184,7 @@ func updateDownloadStatus(id int, status types.DownloadStatus) {
 	if oldStatus == types.InProgress && status == types.Paused {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
 		slog.Info("Sent the signal to downloader")
-		State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Pause}
+
 		slog.Info("Sent the signal to downloader")
 	}
 

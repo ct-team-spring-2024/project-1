@@ -205,8 +205,7 @@ func AsyncStartDownload(download *types.Download, queue *types.Queue, chIn <-cha
 			// incoming event from caller
 
 			case event := <-chIn:
-				fmt.Println("Recieved Pause message")
-				slog.Info("Recieved Pause message")
+				fmt.Println("Recieved Resume or Pause msg")
 				switch event.EType {
 				case Startt:
 					// NOTHING
@@ -217,9 +216,9 @@ func AsyncStartDownload(download *types.Download, queue *types.Queue, chIn <-cha
 							EType: finish,
 						}
 					}
+					// TODO: should we wait for stop successfully message from them?
+					waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
 				case Pause:
-					fmt.Println("Recieved Pause message")
-					slog.Info("Recieved Pause message")
 					for _, chInCM := range inputChannels {
 						slog.Info(fmt.Sprintf("Sent message to chunks"))
 						*chInCM <- CMEvent{
@@ -227,13 +226,12 @@ func AsyncStartDownload(download *types.Download, queue *types.Queue, chIn <-cha
 						}
 					}
 				case Resume:
+					fmt.Println("recieved resume msg")
 					for _, chInCM := range inputChannels {
 						*chInCM <- CMEvent{
 							EType: resume,
 						}
 					}
-					// TODO: should we wait for stop successfully message from them?
-					waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
 				case Reconfig:
 					data := event.Data.(ReconfigDMData)
 					for i := 0; i < numChunks; i++ {
@@ -284,6 +282,9 @@ func AsyncStartDownload(download *types.Download, queue *types.Queue, chIn <-cha
 					createFinalFile(absolutePath, tempFilePaths, chOut)
 					return
 				}
+				//See if default not existing causes problems
+				//	default:
+
 			}
 		}
 	}()
@@ -327,10 +328,28 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 		ticker = time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes))
 		slog.Debug(fmt.Sprintf("Updated ticker interval to %v bytes/sec", rateLimit))
 	}
+	//Not needed , do it in the same goroutine
+	//Goroutine to handle reconfiguration events
+	// go func() {
+	// 	for event := range *inputCh {
 
-	// Goroutine to handle reconfiguration events
-	go func() {
-		for event := range *inputCh {
+	// 	}
+	// }()
+	var isPaused = false
+outerLoop:
+	for {
+		select {
+		case event := <-*inputCh:
+			if event.EType == pause {
+				//wait for the next event to come
+				slog.Info("Stopped the chunk downloader")
+				isPaused = true
+
+			}
+			if event.EType == resume {
+				slog.Info("Pausing chunk")
+				isPaused = false
+			}
 			if event.EType == reconfig {
 				data, ok := event.Data.(ReconfigCMData)
 				if !ok {
@@ -341,55 +360,36 @@ func downloadChunk(url string, start, end int64, tempFile *os.File,
 				slog.Debug(fmt.Sprintf("Received reconfig event with new rate limit: %v bytes/sec", newRateLimit))
 				updateTicker(newRateLimit)
 			}
-		}
-	}()
-outerLoop:
-	for {
-		select {
-		case event := <-*inputCh:
-			if event.EType == pause {
-				//wait for the next event to come
-				slog.Info(fmt.Sprintf("Stopped the chunk downloader"))
-				e := <-*inputCh
-				if e.EType == resume {
-					continue
-				}
-				if e.EType == finish {
-					return
-				} else {
-					slog.Error(fmt.Sprintf("unhandled Error %v", e))
-				}
-
-			}
 
 		case <-ticker.C:
-
-			n, err := reader.Read(buffer)
-			if err != nil && err != io.EOF {
-				fmt.Printf("Error reading data: %v\n", err)
-				return
-			}
-
-			if n > 0 {
-				_, err := tempFile.Write(buffer[:n])
-				if err != nil {
-					fmt.Printf("Error writing to temp file: %v\n", err)
+			if !isPaused {
+				n, err := reader.Read(buffer)
+				if err != nil && err != io.EOF {
+					fmt.Printf("Error reading data: %v\n", err)
 					return
 				}
-				slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
 
-				totalBytesRead += n
-				// TODO if it blocks, then the download speed will be affected!
-				*responseCh <- CMREvent{
-					EType:           inProgress,
-					chunkId:         chunkID,
-					chunkByteOffset: totalBytesRead, // OK??
+				if n > 0 {
+					_, err := tempFile.Write(buffer[:n])
+					if err != nil {
+						fmt.Printf("Error writing to temp file: %v\n", err)
+						return
+					}
+					slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
+
+					totalBytesRead += n
+					// TODO if it blocks, then the download speed will be affected!
+					*responseCh <- CMREvent{
+						EType:           inProgress,
+						chunkId:         chunkID,
+						chunkByteOffset: totalBytesRead, // OK??
+					}
 				}
-			}
 
-			if err == io.EOF {
-				*responseCh <- CMREvent{EType: finished, chunkId: chunkID}
-				break outerLoop
+				if err == io.EOF {
+					*responseCh <- CMREvent{EType: finished, chunkId: chunkID}
+					break outerLoop
+				}
 			}
 		}
 	}
