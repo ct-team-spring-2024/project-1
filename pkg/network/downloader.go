@@ -15,12 +15,17 @@ import (
 	"time"
 )
 
+type DownloadManager struct {
+	EventsChan        chan DMEvent
+	ResponseEventChan chan DMREvent
+	ChunksByteOffset  map[int]int
+}
+
 type EType int
 
 const (
-	Startt EType = iota
-	Stopp
-	Reconfig
+	Reconfig EType = iota
+	Terminatee
 )
 
 type DMEvent struct {
@@ -29,14 +34,29 @@ type DMEvent struct {
 }
 
 type ReconfigDMData struct {
+	downloadId      int
 	newMaxBandwidth int
 }
 
-func NewReconfigDMEvent (newMaxBandwidth int) DMEvent {
+type TerminateDMData struct {
+	downloadId int
+}
+
+func NewReconfigDMEvent (downloadId int, newMaxBandwidth int) DMEvent {
 	return DMEvent{
 		EType: Reconfig,
 		Data:  ReconfigDMData{
+			downloadId: downloadId,
 			newMaxBandwidth: newMaxBandwidth,
+		},
+	}
+}
+
+func NewTerminateDMEvent (downloadId int) DMEvent {
+	return DMEvent{
+		EType: Terminatee,
+		Data:  TerminateDMData{
+			downloadId: downloadId,
 		},
 	}
 }
@@ -50,27 +70,54 @@ const (
 )
 
 type DMREvent struct {
-	EType                   REType
-	// only for inprogress
+	EType REType
+	Data  interface{}
+}
+
+type CompletedDMRData struct {
+	downloadId int
+}
+type FailureDMRData struct {
+	downloadId int
+}
+type InProgressDMRData struct {
+	downloadId int
 	CurrentChunksByteOffset map[int]int
 }
 
-type DownloadManager struct {
-	EventsChan        chan DMEvent
-	ResponseEventChan chan DMREvent
-	ChunksByteOffset  map[int]int
+func NewCompletedDMREvent (downloadId int) DMREvent {
+	return DMREvent{
+		EType: Completed,
+		Data:  CompletedDMRData{
+			downloadId: downloadId,
+		},
+	}
 }
 
-type DownloadResult struct {
-	IsDone bool
-	Err    error
+func NewFailureDMREvent (downloadId int) DMREvent {
+	return DMREvent{
+		EType: Failure,
+		Data:  FailureDMRData{
+			downloadId: downloadId,
+		},
+	}
+}
+
+func NewInProgressDMREvent (downloadId int, currentChunksByteOffset map[int]int) DMREvent {
+	return DMREvent{
+		EType: InProgress,
+		Data:  InProgressDMRData{
+			downloadId: downloadId,
+			CurrentChunksByteOffset: currentChunksByteOffset,
+		},
+	}
 }
 
 type CMEType int
 const (
-	start CMEType = iota
-	finish
-	reconfig
+	reconfig  CMEType = iota
+	getStatus
+	terminate
 )
 
 type CMEvent struct {
@@ -82,6 +129,12 @@ type ReconfigCMData struct {
 	newMaxBandwidth int
 }
 
+type GetStatusCMData struct {
+}
+
+type TerminateCMData struct {
+}
+
 func NewReconfigCMEvent (newMaxBandwidth int) CMEvent {
 	return CMEvent{
 		EType: reconfig,
@@ -91,167 +144,247 @@ func NewReconfigCMEvent (newMaxBandwidth int) CMEvent {
 	}
 }
 
+func NewGetStatusCMEvent () CMEvent {
+	return CMEvent{
+		EType: getStatus,
+		Data:  GetStatusCMData{},
+	}
+}
+
+func NewTerminateCMEvent () CMEvent {
+	return CMEvent{
+		EType: terminate,
+		Data:  TerminateCMData{},
+	}
+}
+
 type CMREType int
+const (
+	inProgress CMREType = iota
+	stopped
+	failed
+	downloaded
+)
 
 type CMREvent struct {
-	EType           CMREType
+	EType CMREType
+	Data  interface{}
+}
+
+type InProgressCMRData struct {
 	chunkId         int
-	// Only for inProgress
 	chunkByteOffset int
 }
 
-const (
-	inProgress CMREType = iota
-	paused
-	failed
-	finished
-	terminated
-)
+type StoppedCMRData struct {
+	chunkId         int
+}
+
+type FailedCMRData struct {
+	chunkId         int
+}
+
+type DownloadedCMRData struct {
+	chunkId         int
+}
+
+func NewInProgressCMREvent (chunkId int, chunkByteOffset int) CMREvent {
+	return CMREvent{
+		EType: inProgress,
+		Data:  InProgressCMRData{
+			chunkId: chunkId,
+			chunkByteOffset: chunkByteOffset,
+		},
+	}
+}
+
+func NewStoppedCMREvent (chunkId int) CMREvent {
+	return CMREvent{
+		EType: stopped,
+		Data:  StoppedCMRData{
+			chunkId: chunkId,
+		},
+	}
+}
+
+func NewFailedCMREvent (chunkId int) CMREvent {
+	return CMREvent{
+		EType: failed,
+		Data:  FailedCMRData{
+			chunkId: chunkId,
+		},
+	}
+}
+
+func NewDownloadedCMREvent (chunkId int) CMREvent {
+	return CMREvent{
+		EType: downloaded,
+		Data:  DownloadedCMRData{
+			chunkId: chunkId,
+		},
+	}
+}
+
 
 // TODO: On newConfig, all the current chunk places are stored in state.
 //	 Then given the new download, the chnuks managers are recreated.
 // TODO: Because InProgress are frequent, maybe using buffered channel would help.
 func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan DMEvent, chOut chan<- DMREvent) {
-	url := download.Url
+	DMStatus := "inProgress"
+	var numChunks int
+	var chInCM []chan CMEvent
+	var chOutCM []chan CMREvent
+	var tempFiles []*os.File
+	var tempFilePaths []string
+	var absolutePath string
+	var chunksByteOffset map[int]int
+	var doneChannels []bool
+	var ticker *time.Ticker
+	initFunc := func() {
+		url := download.Url
+		absolutePath = filepath.Join(queue.Destination, download.Filename)
 
-	absolutePath := filepath.Join(queue.Destination, download.Filename)
+		// Send a HEAD request to get the file size
+		slog.Info("KIIR => ")
+		slog.Info(url)
+		resp, err := http.Head(url)
 
-	// Send a HEAD request to get the file size
-	resp, err := http.Head(url)
-	// defer resp.Body.Close()
-
-	headError := false
-	if err != nil {
-		headError = true
-		slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
-	}
-	if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
-		fmt.Println("Server does not support range requests. Downloading the entire file.")
-		// TODO: chIn to the downloader?
-		downloadEntireFile(url, absolutePath, chIn, chOut)
-		return
-	}
-
-	fileSize := resp.ContentLength
-	if fileSize <= 0 {
-		chOut <- DMREvent{
-			EType: Failure,
-		}
-		slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
-		return
-	}
-	// Server supports range requests, proceed with chunked download
-
-	numChunks := 3
-	chunkSize := fileSize / int64(numChunks)
-	rateLimit := int64(queue.MaxBandwidth / numChunks)
-	chunksByteOffset := make(map[int]int)
-	// TODO: chunksByteOffset should be given as a parameter to the function
-	for i := 0; i < numChunks; i++ {
-		chunksByteOffset[i] = 0
-	}
-	tempFiles := make([]*os.File, numChunks)
-	tempFilePaths := make([]string, numChunks)
-
-	// Starting Chunk Managers
-	inputChannels := make([]*chan CMEvent, 0)
-	respCh := make(chan CMREvent)
-	for i := 0; i < numChunks; i++ {
-		start := int64(i) * chunkSize
-		end := start + chunkSize - 1
-		if i == numChunks-1 {
-			end = fileSize - 1 // Last chunk gets the remaining bytes
-		}
-
-		inputCh := make(chan CMEvent)
-		inputChannels = append(inputChannels, &inputCh)
-
-		// Create a temporary file for this chunk
-		tempFile, err := os.CreateTemp("", fmt.Sprintf("chunk-%d-", i))
+		headError := false
 		if err != nil {
-			chOut <- DMREvent{
-				EType: Failure,
-			}
-			slog.Error(fmt.Sprintf("failed to create temp file: %v", err))
+			headError = true
+			slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
+		}
+		if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
+			fmt.Println("Server does not support range requests. Downloading the entire file.")
+			// TODO: chIn to the downloader?
+			downloadEntireFile(url, absolutePath, chIn, chOut)
 			return
 		}
-		tempFiles[i] = tempFile
-		tempFilePaths[i] = tempFile.Name()
+		fileSize := resp.ContentLength
+		if fileSize <= 0 {
+			DMStatus = "failed"
+			slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
+			return
+		}
+		// Server supports range requests, proceed with chunked download
 
-		go downloadChunk(download.Url, start, end, tempFile, i, &inputCh, &respCh, rateLimit)
+		numChunks = 3
+		chunkSize := fileSize / int64(numChunks)
+		rateLimit := int64(queue.MaxBandwidth / numChunks)
+		chunksByteOffset = make(map[int]int)
+		// TODO: chunksByteOffset should be given as a parameter to the function
+		for i := 0; i < numChunks; i++ {
+			chunksByteOffset[i] = 0
+		}
+		tempFiles = make([]*os.File, numChunks)
+		tempFilePaths = make([]string, numChunks)
 
+		// Starting Chunk Managers
+		chInCM = make([]chan CMEvent, 0)
+		chOutCM = make([]chan CMREvent, 0)
+
+		for i := 0; i < numChunks; i++ {
+			start := int64(i) * chunkSize
+			end := start + chunkSize - 1
+			if i == numChunks-1 {
+				end = fileSize - 1 // Last chunk gets the remaining bytes
+			}
+
+			inputCh := make(chan CMEvent)
+			outputCh := make(chan CMREvent)
+			chInCM = append(chInCM, inputCh)
+			chOutCM = append(chOutCM, outputCh)
+
+			// Create a temporary file for this chunk
+			tempFile, err := os.CreateTemp("", fmt.Sprintf("chunk-%d-", i))
+			if err != nil {
+				DMStatus = "failed"
+				slog.Error(fmt.Sprintf("failed to create temp file: %v", err))
+				return
+			}
+			tempFiles[i] = tempFile
+			tempFilePaths[i] = tempFile.Name()
+			go downloadChunk(download.Url, start, end, tempFile, i, rateLimit, inputCh, outputCh)
+		}
+		doneChannels = make([]bool, numChunks)
+		ticker = time.NewTicker(500 * time.Millisecond)
 	}
-	doneChannels := make([]bool, numChunks)
 
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	initFunc()
+	if DMStatus == "failed" {
+		chOut <- NewFailureDMREvent(download.Id)
+		return
+	}
+	// Rule:
+	// - Each CM is running. The state of CM can be fetched.
+	//   If terminate message is sent, the coroutine will be freed.
 
+	// Check CMs after each tick
+	go func() {
+		for DMStatus == "inProgress" {
+			select {
+			case <-ticker.C:
+				fmt.Println("Woke up")
+				// 1. Check the updates
+				for i := 0; i < numChunks; i++ {
+					select {
+					case msg := <-chOutCM[i]:
+						switch msg.EType {
+						case inProgress:
+							data := msg.Data.(InProgressCMRData)
+							slog.Debug(fmt.Sprintf("InProgress: chunkId=%d, chunkByteOffset=%d\n", data.chunkId, data.chunkByteOffset))
+						case stopped:
+							data := msg.Data.(StoppedCMRData)
+							slog.Debug(fmt.Sprintf("Stopped: chunkId=%d\n", data.chunkId))
+						case failed:
+							data := msg.Data.(FailedCMRData)
+							slog.Debug(fmt.Sprintf("Failed: chunkId=%d\n", data.chunkId))
+						case downloaded:
+							data := msg.Data.(DownloadedCMRData)
+							slog.Debug(fmt.Sprintf("Downloaded: chunkId=%d\n", data.chunkId))
+							doneChannels[data.chunkId] = true
+						default:
+							slog.Debug("Unknown event type")
+						}
+					default:
+						// No message available on the channel
+						fmt.Printf("No message available on chOutCM[%d]\n", i)
+					}
+				}
+				// 2: Send get status + check if completed
+				done := true
+				for i := 0; i < numChunks; i++ {
+					if !doneChannels[i] {
+						done = false
+						go func() {
+							chInCM[i] <- NewGetStatusCMEvent()
+						}()
+					}
+				}
+				if done {
+					DMStatus = "completed"
+					createFinalFile(absolutePath, tempFilePaths, chOut)
+					return
+				}
+			}
+		}
+	}()
+	// Listen for incomming messages
 	for {
 		select {
-		// incoming event from caller
 		case event := <-chIn:
 			switch event.EType {
-			case Startt:
-				// NOTHING
-			case Stopp:
-				// send stop to all chunk managers
-				for _, chInCM := range inputChannels {
-					*chInCM <- CMEvent{
-						EType: finish,
-					}
+			case Terminatee:
+				for i := 0; i < numChunks; i++ {
+					chInCM[i] <- NewTerminateCMEvent()
 				}
-				// TODO: should we wait for stop successfully message from them?
-				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
+				DMStatus = "terminated"
+				return
 			case Reconfig:
-				slog.Info("RECONFIG REC")
 				data := event.Data.(ReconfigDMData)
 				for i := 0; i < numChunks; i++ {
-					*inputChannels[i] <- NewReconfigCMEvent(data.newMaxBandwidth / numChunks)
+					chInCM[i] <- NewReconfigCMEvent(data.newMaxBandwidth / numChunks)
 				}
-				slog.Info("RECONFIG REC END")
-			}
-		// incoming event from Chunk Managers
-		case cmrevent := <-respCh:
-			switch cmrevent.EType {
-			case inProgress:
-				chunksByteOffset[cmrevent.chunkId] = cmrevent.chunkByteOffset
-				chOut <- DMREvent{
-					EType: InProgress,
-					CurrentChunksByteOffset: chunksByteOffset,
-				}
-			case failed:
-				// stoping all chunks
-				for _, chInCM := range inputChannels {
-					*chInCM <- CMEvent{
-						EType: finish,
-					}
-				}
-				waitForTerminatedEvents(respCh, numChunks, 5*time.Second)
-				chOut <- DMREvent{
-					EType: Failure,
-				}
-				slog.Error(fmt.Sprintf("Failure in chunk managers"))
-				return
-			case finished:
-				doneChannels[cmrevent.chunkId] = true
-				fmt.Printf("Chunk number %v is finished\n", cmrevent.chunkId)
-			default:
-				slog.Error(fmt.Sprintf("unhandled type => %v", cmrevent))
-			}
-		case <-ticker.C:
-			// This block runs every 500 milliseconds
-			fmt.Println("Woke up")
-			done := true
-			for i := 0; i < numChunks; i++ {
-				if !doneChannels[i] {
-					done = false
-					break
-				}
-			}
-			if done {
-				fmt.Println("Process finished")
-				createFinalFile(absolutePath, tempFilePaths, chOut)
-				return
 			}
 		}
 	}
@@ -260,107 +393,121 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 // TODO inputCh should be monitored
 // TODO Why channel type is pointer????
 func downloadChunk(url string, start, end int64, tempFile *os.File,
-	chunkID int, inputCh *chan CMEvent, responseCh *chan CMREvent,
-	rateLimit int64) {
-	// Create a new HTTP request with a range header
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		fmt.Printf("Error creating request for chunk %d-%d: %v\n", start, end, err)
-		return
-	}
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
-
-	// Send the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Error downloading chunk %d-%d: %v\n", start, end, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Use a buffered reader to read the response body
-	bufferSizeInBytes := int64(32 * 1024)
-	reader := bufio.NewReader(resp.Body)
-	buffer := make([]byte, bufferSizeInBytes) // 32 KB buffer
-	totalBytesRead := 0
-
-	// Set up a ticker for rate limiting
+	chunkID int, rateLimit int64,
+	chIn chan CMEvent, chOut chan CMREvent) {
+	CMStatus := "inProgress"
 	var tickerMu sync.Mutex
-
-	ticker := time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes)) // Adjust based on buffer size
-	defer ticker.Stop()
+	var ticker *time.Ticker
+	var reader *bufio.Reader
+	var buffer []byte
+	var totalBytesRead int
+	var bufferSizeInBytes int64
+	var resp *http.Response
 
 	updateTicker := func(newRateLimit int64) {
 		tickerMu.Lock()
-
 		ticker.Stop() // Stop the existing ticker
-
 		rateLimit = newRateLimit
 		ticker = time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes))
 		slog.Info(fmt.Sprintf("Updated ticker interval to %v bytes/sec", rateLimit))
-
 		tickerMu.Unlock()
 	}
+	initFunc := func() {
+		slog.Info(fmt.Sprintf("downloadChunk args %v %v", rateLimit, url))
 
-	// Goroutine to handle reconfiguration events
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			fmt.Printf("Error creating request for chunk %d-%d: %v\n", start, end, err)
+			CMStatus = "failed"
+			return
+		}
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+
+		client := &http.Client{}
+		resp, err = client.Do(req)
+		if err != nil {
+			fmt.Printf("Error downloading chunk %d-%d: %v\n", start, end, err)
+			CMStatus = "failed"
+			return
+		}
+
+		bufferSizeInBytes = int64(32 * 1024)
+		reader = bufio.NewReader(resp.Body)
+		buffer = make([]byte, bufferSizeInBytes) // 32 KB buffer
+		totalBytesRead = 0
+
+		ticker = time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes)) // Adjust based on buffer size
+	}
+
+	initFunc()
+
+	// Downloading
 	go func() {
-		for event := range *inputCh {
-			if event.EType == reconfig {
-				slog.Info("reconfig start")
-				data, ok := event.Data.(ReconfigCMData)
-				if !ok {
-					slog.Warn("Invalid reconfig event data")
-					continue
+		for CMStatus == "inProgress" {
+			tickerMu.Lock()
+			<-ticker.C
+			tickerMu.Unlock()
+
+			n, err := reader.Read(buffer)
+			if err != nil && err != io.EOF {
+				fmt.Printf("Error reading data: %v\n", err)
+				CMStatus = "failed"
+				return
+			}
+
+			if n > 0 {
+				_, err := tempFile.Write(buffer[:n])
+				if err != nil {
+					fmt.Printf("Error writing to temp file: %v\n", err)
+					CMStatus = "failed"
+					return
 				}
+				slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
 
-				newRateLimit := int64(data.newMaxBandwidth)
-				slog.Debug(fmt.Sprintf("Received reconfig event with new rate limit: %v bytes/sec", newRateLimit))
-				updateTicker(newRateLimit)
-				slog.Info("reconfig end")
+				totalBytesRead += n
+			}
 
+			if err == io.EOF {
+				CMStatus = "downloaded"
+				resp.Body.Close()
+				break
 			}
 		}
 	}()
 
+	// Listening for message
 	for {
-		tickerMu.Lock()
-		<-ticker.C
-		tickerMu.Unlock()
-
-		// slog.Info("Tick, Motherfucker!")
-
-		n, err := reader.Read(buffer)
-		if err != nil && err != io.EOF {
-			fmt.Printf("Error reading data: %v\n", err)
-			return
-		}
-
-		if n > 0 {
-			_, err := tempFile.Write(buffer[:n])
-			if err != nil {
-				fmt.Printf("Error writing to temp file: %v\n", err)
+		select {
+		case e := <-chIn:
+			switch e.EType {
+			case reconfig:
+				data, ok := e.Data.(ReconfigCMData)
+				if !ok {
+					slog.Warn("Invalid reconfig event data")
+					continue
+				}
+				newRateLimit := int64(data.newMaxBandwidth)
+				slog.Debug(fmt.Sprintf("Received reconfig event with new rate limit: %v bytes/sec", newRateLimit))
+				updateTicker(newRateLimit)
+			case getStatus:
+				go func(){
+					switch CMStatus {
+					case "inProgress":
+						chOut <- NewInProgressCMREvent(chunkID, totalBytesRead)
+					case "downloaded":
+						chOut <- NewDownloadedCMREvent(chunkID)
+					case "stopped":
+						chOut <- NewStoppedCMREvent(chunkID)
+					case "failed":
+						chOut <- NewFailedCMREvent(chunkID)
+					}
+				}()
+			case terminate:
+				CMStatus = "stopped"
 				return
 			}
-			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
-
-			totalBytesRead += n
-			// TODO if it blocks, then the download speed will be affected!
-			*responseCh <- CMREvent{
-				EType: inProgress,
-				chunkId: chunkID,
-				chunkByteOffset: totalBytesRead, // OK??
-			}
-		}
-
-		if err == io.EOF {
-			*responseCh <- CMREvent{EType: finished, chunkId: chunkID}
-			break
 		}
 	}
-
-	fmt.Printf("Chunk %d downloaded successfully.\n", chunkID)
-	return
 }
 
 // TODO: buggy now! dosen't cancel sync download in case of new chIn message
@@ -425,7 +572,7 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 
 func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- DMREvent) {
 	// Merge the temporary files into the final file
-	fmt.Printf("creating file %v\n", absolutePath)
+	slog.Info(fmt.Sprintf("creating file %v\n", absolutePath))
 	finalFile, err := os.Create(absolutePath)
 	if err != nil {
 		chOut <- DMREvent{
@@ -462,29 +609,5 @@ func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- D
 	fmt.Println("Download completed!")
 	chOut <- DMREvent{
 		EType: Completed,
-	}
-}
-
-func waitForTerminatedEvents(respCh <-chan CMREvent, numOfChunks int, timeout time.Duration) error {
-	count := 0
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	for {
-		select {
-		case event, ok := <-respCh:
-			if !ok {
-				return fmt.Errorf("channel closed before receiving required events")
-			}
-			if event.EType == terminated {
-				count++
-				fmt.Printf("Received terminated event #%d (ID: %d)\n", count, event.chunkId)
-				if count >= numOfChunks {
-					return nil
-				}
-			}
-		case <-timer.C:
-			return fmt.Errorf("timeout waiting for terminated events")
-		}
 	}
 }

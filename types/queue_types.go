@@ -5,9 +5,13 @@ import (
 )
 
 type TimeInterval struct {
-	start time.Time
-	end   time.Time
+	Start time.Time
+	End   time.Time
 }
+func (ti TimeInterval) IsTimeInInterval(t time.Time) bool {
+	return !t.Before(ti.Start) && !t.After(ti.End)
+}
+
 type Queue struct {
 	Id                     int
 	DownloadIds            []int

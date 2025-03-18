@@ -45,7 +45,7 @@ func FindDownload2(id int) types.Download {
 }
 
 func FindQueue(id int) (*types.Queue, error) {
-	for i, _ := range State.Queues {
+	for i := range State.Queues {
 		if State.Queues[i].Id == id {
 			return State.Queues[i], nil
 		}

@@ -1,5 +1,7 @@
 package internal
 
+import "go-idm/types"
+
 type IDMEType int
 const (
 	AddQueueEvent IDMEType = iota
@@ -20,8 +22,9 @@ type AddQueueEventData struct {
 }
 
 type ModifyQueueEventData struct {
-	queueId         int
-	newMaxBandwidth int
+	queueId           int
+	newMaxBandwidth   *int
+	newActiveInterval *types.TimeInterval
 }
 
 type PauseDownloadEventData struct {
@@ -44,12 +47,13 @@ func NewAddQueueEvent() IDMEvent {
     }
 }
 
-func NewModifyQueueEvent(queueId int, newMaxBandwidth int) IDMEvent {
+func NewModifyQueueEvent(queueId int, newMaxBandwidth *int, newActiveInterval *types.TimeInterval) IDMEvent {
     return IDMEvent{
 	EType: ModifyQueueEvent,
 	Data: ModifyQueueEventData{
 		queueId: queueId,
 		newMaxBandwidth: newMaxBandwidth,
+		newActiveInterval: newActiveInterval,
 	},
     }
 }

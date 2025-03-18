@@ -47,21 +47,63 @@ func checkToBeInProgress(id int) bool {
 	return result
 }
 
-func findInPrpgressCandidates() []types.Download {
+
+
+func findResetCandidates() []types.Download {
 	State.mu.Lock()
 
 	result := make([]types.Download, 0)
 	for i := range State.Queues {
-		queue := State.Queues[i]
-		inProgressCnt, _ := getInProgressDownloads(queue)
-		remainingInProgress := queue.MaxInProgressCount - inProgressCnt
-		for _, downloadId := range queue.DownloadIds {
-			if remainingInProgress == 0 {
-				break
+		q := State.Queues[i]
+		inProgressCnt, _ := getInProgressDownloads(q)
+		extraInProgress := inProgressCnt - q.MaxInProgressCount
+		for _, downloadId := range q.DownloadIds {
+			d := State.Downloads[downloadId]
+			if extraInProgress > 0 && d.Status == types.InProgress {
+				result = append(result, *d)
+				extraInProgress--
+				continue
 			}
-			if checkToBeInProgress(downloadId) {
-				result = append(result, *State.Downloads[downloadId])
+			// check active interval
+			if d.Status == types.InProgress && !q.ActiveInterval.IsTimeInInterval(time.Now()) {
+				result = append(result, *d)
+				extraInProgress--
+				continue
+			}
+		}
+	}
+
+
+	State.mu.Unlock()
+
+	return result
+}
+
+func findInProgressCandidates() []types.Download {
+	State.mu.Lock()
+
+	result := make([]types.Download, 0)
+	for i := range State.Queues {
+		q := State.Queues[i]
+		inProgressCnt, _ := getInProgressDownloads(q)
+		remainingInProgress := q.MaxInProgressCount - inProgressCnt
+		for _, downloadId := range q.DownloadIds {
+			d := State.Downloads[downloadId]
+			now := time.Now()
+			if remainingInProgress > 0 &&
+				d.Status == types.Created &&
+				q.ActiveInterval.IsTimeInInterval(now) {
+				result = append(result, *d)
 				remainingInProgress--
+				continue
+			}
+			if remainingInProgress > 0 &&
+				d.Status == types.Failed &&
+				d.CurrentRetriesCnt < q.MaxRetriesCount &&
+				q.ActiveInterval.IsTimeInInterval(now) {
+				result = append(result, *d)
+				remainingInProgress--
+				continue
 			}
 		}
 	}
@@ -91,9 +133,20 @@ func updateState(events []IDMEvent) {
 		case AddQueueEvent:
 		case ModifyQueueEvent:
 			data := e.Data.(ModifyQueueEventData)
-			slog.Info(fmt.Sprintf("Modify Event => %v", data))
-			dm := State.downloadManagers[data.queueId]
-			dm.EventsChan <- network.NewReconfigDMEvent(data.newMaxBandwidth) // TODO follow!!!
+			slog.Info(fmt.Sprintf("Modify Event => %+v", data))
+			if data.newMaxBandwidth != nil {
+				State.Queues[data.queueId].MaxBandwidth = *data.newMaxBandwidth
+				for _, downloadId := range State.Queues[data.queueId].DownloadIds {
+					// TODO: the downloads may not be active!
+					dm := State.downloadManagers[downloadId]
+					if dm != nil {
+						dm.EventsChan <- network.NewReconfigDMEvent(downloadId, *data.newMaxBandwidth)
+					}
+				}
+			}
+			if data.newActiveInterval != nil {
+				State.Queues[data.queueId].ActiveInterval = *data.newActiveInterval
+			}
 			slog.Info("Modify Event End")
 		case PauseDownloadEvent:
 		case ResumeDownloadEvent:
@@ -101,16 +154,17 @@ func updateState(events []IDMEvent) {
 		}
 	}
 	// 2. Fire up new candidates
-	var inProgressCandidates []types.Download
-	inProgressCandidates = findInPrpgressCandidates()
+	inProgressCandidates := findInProgressCandidates()
+	slog.Info(fmt.Sprintf("inProgressCandidates => %+v", inProgressCandidates))
 	for _, d := range inProgressCandidates {
 		updateDownloadStatus(d.Id, types.InProgress)
 		createDownloadManager(d.Id)
 		chIn, chOut := getChannel(d.Id)
 		queue := getQueue(d.Id)
-		slog.Debug(fmt.Sprintf("candidates => %v %v %v %v", d, *queue, chIn, chOut))
 		go network.AsyncStartDownload(d, *queue, chIn, chOut)
-		// setup listener for each of the generated downloads.
+		// because the exact order of changing states are important,
+		// we cannot use the pull based approach.
+		// However, again, DM will not get terminated until we send the terminate message for it.
 		go func() {
 			for responseEvent := range chOut {
 				// Motherfucker! this log caused the concurrent access error.
@@ -120,16 +174,33 @@ func updateState(events []IDMEvent) {
 				case network.Completed:
 					slog.Debug(fmt.Sprintf("DMR : Completed %d", d.Id))
 					updateDownloadStatus(d.Id, types.Completed)
+					return
 				case network.Failure:
 					slog.Debug(fmt.Sprintf("DMR : Failure %d", d.Id))
 					updateDownloadStatus(d.Id, types.Failed)
+					return
 				case network.InProgress:
+					data := responseEvent.Data.(network.InProgressDMRData)
 					slog.Debug(fmt.Sprintf("DMR : InProgress %d", d.Id))
-					updateDMChunksByteOffset(d.Id, responseEvent.CurrentChunksByteOffset)
+					updateDMChunksByteOffset(d.Id, data.CurrentChunksByteOffset)
 				}
 			}
 		}()
 	}
+	// 3. Reset candidates:
+	//      The InProgress Downloads that don't abide the current configuration.
+	//      The DownloadStatus will be changed to Created.
+	resetCandidates := findResetCandidates()
+	slog.Info(fmt.Sprintf("resetCaadindtes => %+v", resetCandidates))
+	for _, d := range resetCandidates {
+		updateDownloadStatus(d.Id, types.Created)
+		// send message to stop downloading.
+		chIn, _ := getChannel(d.Id)
+		chIn <- network.NewTerminateDMEvent(d.Id)
+	}
+	// 4. Ask for updates from the DMs.
+	//    Update the state accordingly.
+	//    This is done in the DMWatcher
 }
 
 // TODO: This is unneccessery contention! Because we are storing the chans in a
@@ -155,27 +226,26 @@ func getQueue(id int) *types.Queue {
 	return result
 }
 
-func updateDownloadStatus(id int, status types.DownloadStatus) {
+func updateDownloadStatus(id int, newStatus types.DownloadStatus) {
 	State.mu.Lock()
 
 	oldStatus := State.Downloads[id].Status
-	State.Downloads[id].Status = status
+	State.Downloads[id].Status = newStatus
 
-	slog.Info(fmt.Sprintf("id %d %v %v", id, status, oldStatus))
-	spew.Dump(State)
 	// 1: Update CurrentInProgressCount
-	if oldStatus == types.InProgress && (status == types.Failed || status == types.Completed) {
+	if oldStatus == newStatus {
+		panic("old status same is new status??")
+	}
+	if oldStatus == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
 	}
-	if status == types.InProgress {
+	if newStatus == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount++
 	}
 	// 1: Update CurrentRetriesCnt
-	if status == types.Failed {
+	if newStatus == types.Failed {
 		State.Downloads[id].CurrentRetriesCnt++
 	}
-
-	slog.Info("Update done")
 
 	State.mu.Unlock()
 }
@@ -196,6 +266,8 @@ func createDownloadManager(downloadId int) {
 		ResponseEventChan: make(chan network.DMREvent),
 	}
 	State.downloadManagers[downloadId] = &downloadManager
+	slog.Info("KIR TOOT")
+	spew.Dump(State.downloadManagers)
 
 
 	State.mu.Unlock()
