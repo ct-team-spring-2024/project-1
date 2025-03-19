@@ -268,15 +268,17 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	var chunksByteOffset map[int]int
 	var doneChannels []bool
 	var ticker *time.Ticker
-	var acceptsRanges bool
 	initFunc := func() {
 		url := download.Url
 		absolutePath = filepath.Join(queue.Destination, download.Filename)
 
 		// Send a HEAD request to get the file size
-		slog.Info(url)
 		resp, err := http.Head(url)
+		slog.Info("GGG")
+		slog.Info(url)
+		slog.Info(fmt.Sprintf("KIR %+v %+v", resp.Header.Get("Accept-Ranges"), err))
 
+		acceptsRanges := true
 		headError := false
 		if err != nil {
 			headError = true
@@ -284,10 +286,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 		}
 		if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
 			fmt.Println("Server does not support range requests. Downloading the entire file.")
-			// TODO: chIn to the downloader?
 			acceptsRanges = false
-			//	downloadEntireFile(url, absolutePath, chIn, chOut)
-			//return
 		}
 		fileSize := resp.ContentLength
 		if fileSize <= 0 {
@@ -295,12 +294,13 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 			slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
 			return
 		}
-		// Server supports range requests, proceed with chunked download
 
 		numChunks = 3
 		if !acceptsRanges {
 			numChunks = 1
 		}
+		slog.Info(fmt.Sprintf("Num Chunks is => %d", numChunks))
+
 		chunkSize := fileSize / int64(numChunks)
 		rateLimit := int64(queue.MaxBandwidth / numChunks)
 		chunksByteOffset = make(map[int]int)
@@ -500,37 +500,37 @@ func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *o
 
 	// Downloading
 	// go func() {
-	// 	for CMStatus == "inProgress" {
-	// 		//ticker is thread safe , lock unneccessary
-	// 		tickerMu.Lock()
-	// 		<-ticker.C
-	// 		tickerMu.Unlock()
+	//	for CMStatus == "inProgress" {
+	//		//ticker is thread safe , lock unneccessary
+	//		tickerMu.Lock()
+	//		<-ticker.C
+	//		tickerMu.Unlock()
 
-	// 		n, err := reader.Read(buffer)
-	// 		if err != nil && err != io.EOF {
-	// 			fmt.Printf("Error reading data: %v\n", err)
-	// 			CMStatus = "failed"
-	// 			return
-	// 		}
+	//		n, err := reader.Read(buffer)
+	//		if err != nil && err != io.EOF {
+	//			fmt.Printf("Error reading data: %v\n", err)
+	//			CMStatus = "failed"
+	//			return
+	//		}
 
-	// 		if n > 0 {
-	// 			_, err := tempFile.Write(buffer[:n])
-	// 			if err != nil {
-	// 				fmt.Printf("Error writing to temp file: %v\n", err)
-	// 				CMStatus = "failed"
-	// 				return
-	// 			}
-	// 			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
+	//		if n > 0 {
+	//			_, err := tempFile.Write(buffer[:n])
+	//			if err != nil {
+	//				fmt.Printf("Error writing to temp file: %v\n", err)
+	//				CMStatus = "failed"
+	//				return
+	//			}
+	//			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
 
-	// 			totalBytesRead += n
-	// 		}
+	//			totalBytesRead += n
+	//		}
 
-	// 		if err == io.EOF {
-	// 			CMStatus = "downloaded"
-	// 			resp.Body.Close()
-	// 			break
-	// 		}
-	// 	}
+	//		if err == io.EOF {
+	//			CMStatus = "downloaded"
+	//			resp.Body.Close()
+	//			break
+	//		}
+	//	}
 	// }()
 
 	// Listening for message

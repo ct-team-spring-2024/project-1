@@ -221,5 +221,6 @@ func t5TestingPauseAndResume() {
 func main() {
 	// t4ChangingConfiguration()
 	//tActiveInterval()
-	t5TestingPauseAndResume()
+	// t5TestingPauseAndResume()
+	t2()
 }
