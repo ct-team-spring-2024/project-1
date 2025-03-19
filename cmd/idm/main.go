@@ -164,7 +164,7 @@ func tActiveInterval() {
 		Start: now.Add(-10 * time.Minute),
 		End:   now.Add(10 * time.Minute),
 	}
-	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
 	q.Destination = "./files"
 	q.MaxBandwidth = 9 * 1024 * 1024
 	internal.AddQueue(q)
@@ -200,12 +200,13 @@ func t5TestingPauseAndResume() {
 		Start: now.Add(-10 * time.Minute),
 		End:   now.Add(10 * time.Minute),
 	}
-	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
-	//	q.Destination = "./files"
-	q.MaxBandwidth = 28 * 1024 * 1024
+	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	q.Destination = "./files"
+	q.MaxBandwidth = 9 * 1024 * 1024
 	internal.AddQueue(q)
-	d1.Filename = "downloaded.mp4"
-	d1.Url = "https://dl33.deserver.top/www2/serial/Daredevil.Born.Again/s01/Daredevil.Born.Again.S01E04.REPACK.720p.WEB-DL.SoftSub.DigiMoviez.mkv?md5=8pKAOCubgbXPCqJFKHnCXw&expires=1742751594"
+	d1.Filename = "largefile.bin"
+	// d1.Url = "https://dl33.deserver.top/www2/serial/Daredevil.Born.Again/s01/Daredevil.Born.Again.S01E04.REPACK.720p.WEB-DL.SoftSub.DigiMoviez.mkv?md5=8pKAOCubgbXPCqJFKHnCXw&expires=1742751594"
+	d1.Url = "http://127.0.0.1:8080"
 	internal.AddDownload(d1, q.Id)
 
 	slog.Info("Initial State =>")
@@ -220,7 +221,7 @@ func t5TestingPauseAndResume() {
 
 func main() {
 	// t4ChangingConfiguration()
-	//tActiveInterval()
-	// t5TestingPauseAndResume()
-	t2()
+	// tActiveInterval()
+	// t4ChangingConfiguration()
+	t5TestingPauseAndResume()
 }
