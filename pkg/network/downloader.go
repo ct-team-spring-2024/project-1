@@ -274,9 +274,6 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 
 		// Send a HEAD request to get the file size
 		resp, err := http.Head(url)
-		slog.Info("GGG")
-		slog.Info(url)
-		slog.Info(fmt.Sprintf("KIR %+v %+v", resp.Header.Get("Accept-Ranges"), err))
 
 		acceptsRanges := true
 		headError := false
