@@ -23,7 +23,7 @@ type Download struct {
 	Status                 DownloadStatus
 	CurrentRetriesCnt      int
 	QueueId                int
-	CurrnetDownloadOffsets []int64
+	CurrnetDownloadOffsets map[int]int
 }
 
 func NewDownload(id int, q Queue) Download {

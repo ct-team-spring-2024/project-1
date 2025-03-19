@@ -265,6 +265,7 @@ func updateDMChunksByteOffset(downloadId int, currentChunksByteOffset map[int]in
 	State.mu.Lock()
 
 	State.downloadManagers[downloadId].ChunksByteOffset = currentChunksByteOffset
+	State.Downloads[downloadId].CurrnetDownloadOffsets = currentChunksByteOffset
 
 	State.mu.Unlock()
 }
