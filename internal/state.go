@@ -11,12 +11,10 @@ import (
 	"go-idm/types"
 )
 
-
-
 type AppState struct {
-	mu               sync.Mutex
-	Queues           map[int]*types.Queue
-	Downloads        map[int]*types.Download
+	mu        sync.Mutex
+	Queues    map[int]*types.Queue
+	Downloads map[int]*types.Download
 	// TODO Now download managers are killed if not running.
 	//      But stroing the bytes offset means they should be not.
 	downloadManagers map[int]*network.DownloadManager
@@ -26,8 +24,8 @@ var State *AppState
 
 func InitState() {
 	State = &AppState{
-		Queues: make(map[int]*types.Queue),
-		Downloads: make(map[int]*types.Download),
+		Queues:           make(map[int]*types.Queue),
+		Downloads:        make(map[int]*types.Download),
 		downloadManagers: make(map[int]*network.DownloadManager),
 	}
 }
@@ -46,8 +44,6 @@ func checkToBeInProgress(id int) bool {
 
 	return result
 }
-
-
 
 func findResetCandidates() []types.Download {
 	State.mu.Lock()
@@ -72,7 +68,6 @@ func findResetCandidates() []types.Download {
 			}
 		}
 	}
-
 
 	State.mu.Unlock()
 
@@ -117,7 +112,7 @@ func UpdaterWithCount(step int, events map[int][]IDMEvent) {
 		// Some Queue/Download are added
 		updateState(events[i])
 		time.Sleep(1 * time.Second)
-		if i % 5 == 0 {
+		if i%3 == 0 {
 			slog.Info(fmt.Sprintf("================================================================================"))
 			slog.Info(fmt.Sprintf("State after step %d => ", i))
 			spew.Dump(State)
@@ -149,13 +144,25 @@ func updateState(events []IDMEvent) {
 			}
 			slog.Info("Modify Event End")
 		case PauseDownloadEvent:
+			slog.Info("Pausing the download ----------------------------------------------------------------")
+			data := e.Data.(PauseDownloadEventData)
+			id := data.DownloadID
+			slog.Info(fmt.Sprintf("Download id is %v", id))
+			updateDownloadStatus(id, types.Paused)
+			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Pause}
 		case ResumeDownloadEvent:
+			data := e.Data.(ResumeDownloadEventData)
+			id := data.DownloadID
+			updateDownloadStatus(id, types.InProgress)
+			fmt.Println("finished updating status")
+			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Resume}
+
 		case DeleteDownloadEvent:
 		}
 	}
 	// 2. Fire up new candidates
 	inProgressCandidates := findInProgressCandidates()
-	slog.Info(fmt.Sprintf("inProgressCandidates => %+v", inProgressCandidates))
+	//slog.Info(fmt.Sprintf("inProgressCandidates => %+v", inProgressCandidates))
 	for _, d := range inProgressCandidates {
 		updateDownloadStatus(d.Id, types.InProgress)
 		createDownloadManager(d.Id)
@@ -191,7 +198,7 @@ func updateState(events []IDMEvent) {
 	//      The InProgress Downloads that don't abide the current configuration.
 	//      The DownloadStatus will be changed to Created.
 	resetCandidates := findResetCandidates()
-	slog.Info(fmt.Sprintf("resetCaadindtes => %+v", resetCandidates))
+	//	slog.Info(fmt.Sprintf("resetCaadindtes => %+v", resetCandidates))
 	for _, d := range resetCandidates {
 		updateDownloadStatus(d.Id, types.Created)
 		// send message to stop downloading.
@@ -204,7 +211,8 @@ func updateState(events []IDMEvent) {
 }
 
 // TODO: This is unneccessery contention! Because we are storing the chans in a
-//       map, then we have to lock.
+//
+//	map, then we have to lock.
 func getChannel(id int) (chan network.DMEvent, chan network.DMREvent) {
 	State.mu.Lock()
 
@@ -228,16 +236,19 @@ func getQueue(id int) *types.Queue {
 
 func updateDownloadStatus(id int, newStatus types.DownloadStatus) {
 	State.mu.Lock()
-
 	oldStatus := State.Downloads[id].Status
 	State.Downloads[id].Status = newStatus
-
 	// 1: Update CurrentInProgressCount
-	if oldStatus == newStatus {
-		panic("old status same is new status??")
-	}
+	// if oldStatus == newStatus {
+	// 	panic("old status same is new status??")
+	// }
 	if oldStatus == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
+	}
+	if oldStatus == types.InProgress && newStatus == types.Paused {
+		fmt.Println("ran here 3")
+		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
+
 	}
 	if newStatus == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount++
@@ -266,9 +277,7 @@ func createDownloadManager(downloadId int) {
 		ResponseEventChan: make(chan network.DMREvent),
 	}
 	State.downloadManagers[downloadId] = &downloadManager
-	slog.Info("KIR TOOT")
 	spew.Dump(State.downloadManagers)
-
 
 	State.mu.Unlock()
 }

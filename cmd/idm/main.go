@@ -42,6 +42,7 @@ func t1() {
 	internal.UpdaterWithCount(1, make(map[int][]internal.IDMEvent))
 
 }
+
 // 1 download
 func t2() {
 	opts := &slog.HandlerOptions{
@@ -73,6 +74,7 @@ func t2() {
 	// mock the network component, so testing is limited.
 	internal.UpdaterWithCount(120, make(map[int][]internal.IDMEvent))
 }
+
 // 2 downloads
 func t3() {
 	opts := &slog.HandlerOptions{
@@ -162,7 +164,7 @@ func tActiveInterval() {
 		Start: now.Add(-10 * time.Minute),
 		End:   now.Add(10 * time.Minute),
 	}
-	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
 	q.Destination = "./files"
 	q.MaxBandwidth = 9 * 1024 * 1024
 	internal.AddQueue(q)
@@ -180,8 +182,44 @@ func tActiveInterval() {
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 	internal.UpdaterWithCount(250, eventsMap)
 }
+func t5TestingPauseAndResume() {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	internal.InitState()
+	q := types.NewQueue(0)
+	d1 := types.NewDownload(0, q)
+
+	q.MaxInProgressCount = 1
+	now := time.Now()
+	q.ActiveInterval = types.TimeInterval{
+		Start: now.Add(-10 * time.Minute),
+		End:   now.Add(10 * time.Minute),
+	}
+	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	//	q.Destination = "./files"
+	q.MaxBandwidth = 28 * 1024 * 1024
+	internal.AddQueue(q)
+	d1.Filename = "downloaded.mp4"
+	d1.Url = "https://dl33.deserver.top/www2/serial/Daredevil.Born.Again/s01/Daredevil.Born.Again.S01E04.REPACK.720p.WEB-DL.SoftSub.DigiMoviez.mkv?md5=8pKAOCubgbXPCqJFKHnCXw&expires=1742751594"
+	internal.AddDownload(d1, q.Id)
+
+	slog.Info("Initial State =>")
+	spew.Dump(internal.State)
+	eventsMap := make(map[int][]internal.IDMEvent)
+	eventsMap[9] = []internal.IDMEvent{internal.NewPauseDownloadEvent(0)}
+	eventsMap[18] = []internal.IDMEvent{internal.NewResumeDownloadEvent(0)}
+	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
+
+	internal.UpdaterWithCount(2000, eventsMap)
+}
 
 func main() {
 	// t4ChangingConfiguration()
-	tActiveInterval()
+	//tActiveInterval()
+	t5TestingPauseAndResume()
 }
