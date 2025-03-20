@@ -23,7 +23,7 @@ type AddQueueEventData struct {
 
 type ModifyQueueEventData struct {
 	queueId           int
-	newMaxBandwidth   *int
+	newMaxBandwidth   *int64
 	newActiveInterval *types.TimeInterval
 }
 
@@ -47,7 +47,7 @@ func NewAddQueueEvent() IDMEvent {
     }
 }
 
-func NewModifyQueueEvent(queueId int, newMaxBandwidth *int, newActiveInterval *types.TimeInterval) IDMEvent {
+func NewModifyQueueEvent(queueId int, newMaxBandwidth *int64, newActiveInterval *types.TimeInterval) IDMEvent {
     return IDMEvent{
 	EType: ModifyQueueEvent,
 	Data: ModifyQueueEventData{

@@ -92,7 +92,7 @@ func t3() {
 	q.MaxInProgressCount = 2
 	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
 	q.Destination = "./files"
-	q.MaxBandwidth = 15 * 1024 * 1024
+	q.MaxBandwidth = 12 * 1024 * 1024
 	q.ActiveInterval = types.TimeInterval{
 		Start: now.Add(-10 * time.Minute),
 		End:   now.Add(10 * time.Minute),
@@ -141,7 +141,7 @@ func t4ChangingConfiguration() {
 	slog.Info("Initial State =>")
 	spew.Dump(internal.State)
 	eventsMap := make(map[int][]internal.IDMEvent)
-	newBandwidth := 3 * 1024 * 1024
+	newBandwidth := int64(3 * 1024 * 1024)
 	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, &newBandwidth, nil)}
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 	internal.UpdaterWithCount(250, eventsMap)
@@ -224,7 +224,7 @@ func t6TestingPauseAndResume() {
 // at somewhere around second 10, we will start the server(manually).
 // The download will fail about 10 times, but will continue to work afterwards.
 // If the server is started after 20s, the download will not be started
-func t6MaxRetry() {
+func t7MaxRetry() {
 	opts := &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}
@@ -258,5 +258,5 @@ func t6MaxRetry() {
 
 
 func main() {
-	t6MaxRetry()
+	t6TestingPauseAndResume()
 }
