@@ -24,6 +24,7 @@ type Download struct {
 	CurrentRetriesCnt      int
 	QueueId                int
 	CurrnetDownloadOffsets map[int]int
+	TempFileAddresses      map[int]string
 }
 
 func NewDownload(id int, q Queue) Download {

@@ -69,6 +69,7 @@ const (
 	Completed REType = iota
 	Failure
 	InProgress
+	SetTempFileAddress
 )
 
 type DMREvent struct {
@@ -85,6 +86,10 @@ type FailureDMRData struct {
 type InProgressDMRData struct {
 	downloadId              int
 	CurrentChunksByteOffset map[int]int
+}
+type SetTempFileAddressDMRData struct {
+	downloadId        int
+	TempFileAddresses map[int]string
 }
 
 func NewCompletedDMREvent(downloadId int) DMREvent {
@@ -111,6 +116,15 @@ func NewInProgressDMREvent(downloadId int, currentChunksByteOffset map[int]int) 
 		Data: InProgressDMRData{
 			downloadId:              downloadId,
 			CurrentChunksByteOffset: currentChunksByteOffset,
+		},
+	}
+}
+func NewSetTempFileAddressDMREvent(downloadId int, tempFileAddress map[int]string) DMREvent {
+	return DMREvent{
+		EType: SetTempFileAddress,
+		Data: SetTempFileAddressDMRData{
+			downloadId:        downloadId,
+			TempFileAddresses: tempFileAddress,
 		},
 	}
 }
@@ -263,7 +277,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	var chInCM []chan CMEvent
 	var chOutCM []chan CMREvent
 	var tempFiles []*os.File
-	var tempFilePaths []string
+	var tempFilePaths map[int]string
 	var absolutePath string
 	var chunksByteOffset map[int]int
 	var doneChannels []bool
@@ -309,7 +323,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 			chunksByteOffset[i] = 0
 		}
 		tempFiles = make([]*os.File, numChunks)
-		tempFilePaths = make([]string, numChunks)
+		tempFilePaths = make(map[int]string)
 
 		// Starting Chunk Managers
 		chInCM = make([]chan CMEvent, 0)
@@ -336,6 +350,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 			}
 			tempFiles[i] = tempFile
 			tempFilePaths[i] = tempFile.Name()
+
 			go downloadChunk(download.Url, start, end, acceptsRanges, tempFile, i, rateLimit, inputCh, outputCh)
 		}
 		doneChannels = make([]bool, numChunks)
@@ -343,6 +358,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	}
 
 	initFunc()
+	chOut <- NewSetTempFileAddressDMREvent(download.Id, tempFilePaths)
 	if DMStatus == "failed" {
 		chOut <- NewFailureDMREvent(download.Id)
 		return
@@ -369,7 +385,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 							case chOut <- NewInProgressDMREvent(download.Id, chunksByteOffset):
 								slog.Info("updated chunk offsets")
 							default:
-								fmt.Print("dfkdfldkfdlfk")
+								//DO NOTHING
 							}
 							slog.Debug(fmt.Sprintf("InProgress: chunkId=%d, chunkByteOffset=%d\n", data.chunkId, data.chunkByteOffset))
 
@@ -580,7 +596,6 @@ func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *o
 				CMStatus = "inProgress"
 			case getStatus:
 				go func() {
-					fmt.Println("sending status")
 					switch CMStatus {
 					case "inProgress":
 						chOut <- NewInProgressCMREvent(chunkID, totalBytesRead)
@@ -662,7 +677,7 @@ func downloadEntireFile(rawurl, filePath string, chIn <-chan DMEvent, chOut chan
 	}
 }
 
-func createFinalFile(absolutePath string, tempFilePaths []string, chOut chan<- DMREvent) {
+func createFinalFile(absolutePath string, tempFilePaths map[int]string, chOut chan<- DMREvent) {
 	// Merge the temporary files into the final file
 	slog.Info(fmt.Sprintf("creating file %v\n", absolutePath))
 	finalFile, err := os.Create(absolutePath)
