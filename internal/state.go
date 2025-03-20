@@ -14,12 +14,11 @@ import (
 )
 
 type AppState struct {
-	mu        sync.Mutex
-	Queues    map[int]*types.Queue
-	Downloads map[int]*types.Download
-	// TODO Now download managers are killed if not running.
-	//      But stroing the bytes offset means they should be not.
+	mu               sync.Mutex
+	Queues           map[int]*types.Queue
+	Downloads        map[int]*types.Download
 	downloadManagers map[int]*network.DownloadManager
+	downloadTickers  map[int]*network.DownloadTicker
 }
 
 var State *AppState
@@ -30,6 +29,7 @@ func InitState() {
 		Queues:           make(map[int]*types.Queue),
 		Downloads:        make(map[int]*types.Download),
 		downloadManagers: make(map[int]*network.DownloadManager),
+		downloadTickers:  make(map[int]*network.DownloadTicker),
 	}
 	file, err := os.Create("data.json")
 	if err != nil {
@@ -156,23 +156,18 @@ func updateState(events []IDMEvent) {
 		case AddQueueEvent:
 		case ModifyQueueEvent:
 			data := e.Data.(ModifyQueueEventData)
-			slog.Info(fmt.Sprintf("Modify Event => %+v", data))
 			if data.newMaxBandwidth != nil {
 				State.Queues[data.queueId].MaxBandwidth = *data.newMaxBandwidth
-				for _, downloadId := range State.Queues[data.queueId].DownloadIds {
-					// TODO: the downloads may not be active!
-					dm := State.downloadManagers[downloadId]
-					if dm != nil {
-						dm.EventsChan <- network.NewReconfigDMEvent(downloadId, *data.newMaxBandwidth)
-					}
-				}
+				State.downloadTickers[data.queueId].TickerMu.Lock()
+				State.downloadTickers[data.queueId].Ticker.Stop()
+				State.downloadTickers[data.queueId].Ticker = time.NewTicker(time.Second /
+					time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
+				State.downloadTickers[data.queueId].TickerMu.Unlock()
 			}
 			if data.newActiveInterval != nil {
 				State.Queues[data.queueId].ActiveInterval = *data.newActiveInterval
 			}
-			slog.Info("Modify Event End")
 		case PauseDownloadEvent:
-			slog.Info("Pausing the download ----------------------------------------------------------------")
 			data := e.Data.(PauseDownloadEventData)
 			id := data.DownloadID
 			slog.Info(fmt.Sprintf("Download id is %v", id))
@@ -196,7 +191,8 @@ func updateState(events []IDMEvent) {
 		createDownloadManager(d.Id)
 		chIn, chOut := getChannel(d.Id)
 		queue := getQueue(d.Id)
-		go network.AsyncStartDownload(d, *queue, chIn, chOut)
+		downloadTicker := getDownloadTicker(queue.Id)
+		go network.AsyncStartDownload(d, *queue, downloadTicker, chIn, chOut)
 		// because the exact order of changing states are important,
 		// we cannot use the pull based approach.
 		// However, again, DM will not get terminated until we send the terminate message for it.
@@ -253,6 +249,15 @@ func getChannel(id int) (chan network.DMEvent, chan network.DMREvent) {
 	State.mu.Unlock()
 
 	return r1, r2
+}
+func getDownloadTicker(queueId int) *network.DownloadTicker {
+	State.mu.Lock()
+
+	result := State.downloadTickers[queueId]
+
+	State.mu.Unlock()
+
+	return result
 }
 
 func getQueue(id int) *types.Queue {

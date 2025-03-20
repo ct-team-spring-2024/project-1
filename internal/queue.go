@@ -2,11 +2,16 @@ package internal
 
 import (
 	"go-idm/types"
+	"go-idm/pkg/network"
+	"time"
 )
 
-// all function passes must have pointers , otherwise a copy of it will be appended
 func AddQueue(queue types.Queue) {
 	State.Queues[queue.Id] = &queue
+
+	State.downloadTickers[queue.Id] = &network.DownloadTicker{
+		Ticker: time.NewTicker(time.Second / time.Duration(queue.MaxBandwidth/network.BufferSizeInBytes)),
+	}
 }
 
 func getInProgressDownloads(queue *types.Queue) (int, []types.Download) {

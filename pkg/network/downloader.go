@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+type DownloadTicker struct {
+	Ticker   *time.Ticker
+	TickerMu sync.Mutex
+}
+
 type DownloadManager struct {
 	EventsChan        chan DMEvent
 	ResponseEventChan chan DMREvent
@@ -37,19 +42,17 @@ type DMEvent struct {
 
 type ReconfigDMData struct {
 	downloadId      int
-	newMaxBandwidth int
 }
 
 type TerminateDMData struct {
 	downloadId int
 }
 
-func NewReconfigDMEvent(downloadId int, newMaxBandwidth int) DMEvent {
+func NewReconfigDMEvent(downloadId int) DMEvent {
 	return DMEvent{
 		EType: Reconfig,
 		Data: ReconfigDMData{
 			downloadId:      downloadId,
-			newMaxBandwidth: newMaxBandwidth,
 		},
 	}
 }
@@ -145,7 +148,6 @@ type CMEvent struct {
 }
 
 type ReconfigCMData struct {
-	newMaxBandwidth int
 }
 
 type GetStatusCMData struct {
@@ -154,11 +156,10 @@ type GetStatusCMData struct {
 type TerminateCMData struct {
 }
 
-func NewReconfigCMEvent(newMaxBandwidth int) CMEvent {
+func NewReconfigCMEvent() CMEvent {
 	return CMEvent{
 		EType: reconfig,
 		Data: ReconfigCMData{
-			newMaxBandwidth: newMaxBandwidth,
 		},
 	}
 }
@@ -266,12 +267,11 @@ func NewDownloadedCMREvent(chunkId int) CMREvent {
 	}
 }
 
-// TODO: On newConfig, all the current chunk places are stored in state.
-//
-//	Then given the new download, the chnuks managers are recreated.
-//
-// TODO: Because InProgress are frequent, maybe using buffered channel would help.
-func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan DMEvent, chOut chan<- DMREvent) {
+var BufferSizeInBytes int64 = int64(32 * 1024)
+
+func AsyncStartDownload(download types.Download, queue types.Queue,
+	downloadTicker *DownloadTicker,
+	chIn <-chan DMEvent, chOut chan<- DMREvent) {
 	DMStatus := "inProgress"
 	var numChunks int
 	var chInCM []chan CMEvent
@@ -316,7 +316,6 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 		slog.Info(fmt.Sprintf("Num Chunks is => %d", numChunks))
 
 		chunkSize := fileSize / int64(numChunks)
-		rateLimit := int64(queue.MaxBandwidth / numChunks)
 		chunksByteOffset = make(map[int]int)
 		// TODO: chunksByteOffset should be given as a parameter to the function
 		for i := 0; i < numChunks; i++ {
@@ -350,8 +349,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 			}
 			tempFiles[i] = tempFile
 			tempFilePaths[i] = tempFile.Name()
-
-			go downloadChunk(download.Url, start, end, acceptsRanges, tempFile, i, rateLimit, inputCh, outputCh)
+			go downloadChunk(download.Url, start, end, acceptsRanges, tempFile, i, downloadTicker, inputCh, outputCh)
 		}
 		doneChannels = make([]bool, numChunks)
 		ticker = time.NewTicker(500 * time.Millisecond)
@@ -381,12 +379,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 						case inProgress:
 							data := msg.Data.(InProgressCMRData)
 							chunksByteOffset[data.chunkId] = data.chunkByteOffset
-							select {
-							case chOut <- NewInProgressDMREvent(download.Id, chunksByteOffset):
-								slog.Info("updated chunk offsets")
-							default:
-								//DO NOTHING
-							}
+							chOut <- NewInProgressDMREvent(download.Id, chunksByteOffset)
 							slog.Debug(fmt.Sprintf("InProgress: chunkId=%d, chunkByteOffset=%d\n", data.chunkId, data.chunkByteOffset))
 
 						case stopped:
@@ -439,9 +432,9 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				DMStatus = "terminated"
 				return
 			case Reconfig:
-				data := event.Data.(ReconfigDMData)
+				// data := event.Data.(ReconfigDMData)
 				for i := 0; i < numChunks; i++ {
-					chInCM[i] <- NewReconfigCMEvent(data.newMaxBandwidth / numChunks)
+					chInCM[i] <- NewReconfigCMEvent()
 				}
 			case Pause:
 				for _, ch := range chInCM {
@@ -453,37 +446,43 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 				for _, ch := range chInCM {
 					slog.Info(fmt.Sprintf("Sent message to chunks"))
 					ch <- NewResumeCMEvent()
-					fmt.Println("Sent pause msg to chunks")
+					fmt.Println("Sent resume msg to chunks")
 				}
 			}
 		}
 	}
 }
 
-// TODO inputCh should be monitored
-// TODO Why channel type is pointer????
+// States:
+// inProgress
+// paused
+// failed
+// downloaded
+// terminated
+
+// When terminated, we can shut down everything and don't listen to chIn
+
+// When downloaded or terminated, the Download thread can be stopped.
+// When inProgress, Download loop should continue.
+// When paused or failed, wait until the status is changed and download can be continued.
 func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *os.File,
-	chunkID int, rateLimit int64,
+	chunkID int, downloadTicker *DownloadTicker,
 	chIn chan CMEvent, chOut chan CMREvent) {
 	CMStatus := "inProgress"
-	var tickerMu sync.Mutex
-	var ticker *time.Ticker
 	var reader *bufio.Reader
 	var buffer []byte
 	var totalBytesRead int
-	var bufferSizeInBytes int64
 	var resp *http.Response
 
-	updateTicker := func(newRateLimit int64) {
-		tickerMu.Lock()
-		ticker.Stop() // Stop the existing ticker
-		rateLimit = newRateLimit
-		ticker = time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes))
-		slog.Info(fmt.Sprintf("Updated ticker interval to %v bytes/sec", rateLimit))
-		tickerMu.Unlock()
-	}
+	// updateTicker := func(newRateLimit int64) {
+	//	tickerMu.Lock()
+	//	ticker.Stop() // Stop the existing ticker
+	//	rateLimit = newRateLimit
+	//	ticker = time.NewTicker(time.Second / time.Duration(rateLimit/BufferSizeInBytes))
+	//	slog.Info(fmt.Sprintf("Updated ticker interval to %v bytes/sec", rateLimit))
+	//	tickerMu.Unlock()
+	// }
 	initFunc := func() {
-		slog.Info(fmt.Sprintf("downloadChunk args %v %v", rateLimit, url))
 
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
@@ -504,92 +503,66 @@ func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *o
 			return
 		}
 
-		bufferSizeInBytes = int64(32 * 1024)
 		reader = bufio.NewReader(resp.Body)
-		buffer = make([]byte, bufferSizeInBytes) // 32 KB buffer
+		buffer = make([]byte, BufferSizeInBytes) // 32 KB buffer
 		totalBytesRead = 0
-
-		ticker = time.NewTicker(time.Second / time.Duration(rateLimit/bufferSizeInBytes)) // Adjust based on buffer size
 	}
 
 	initFunc()
 
-	// Downloading
-	// go func() {
-	//	for CMStatus == "inProgress" {
-	//		//ticker is thread safe , lock unneccessary
-	//		tickerMu.Lock()
-	//		<-ticker.C
-	//		tickerMu.Unlock()
+	go func() {
+		for CMStatus != "downloaded" && CMStatus != "terminated" {
+			for CMStatus != "inProgress" {
+				time.Sleep(1 * time.Second)
+			}
+			if CMStatus == "downloaded" || CMStatus == "terminated" {
+				return
+			}
+			// TODO: ticker is thread safe , lock unneccessary
+			downloadTicker.TickerMu.Lock()
+			<-downloadTicker.Ticker.C
+			downloadTicker.TickerMu.Unlock()
 
-	//		n, err := reader.Read(buffer)
-	//		if err != nil && err != io.EOF {
-	//			fmt.Printf("Error reading data: %v\n", err)
-	//			CMStatus = "failed"
-	//			return
-	//		}
+			n, err := reader.Read(buffer)
+			if err != nil && err != io.EOF {
+				fmt.Printf("Error reading data: %v\n", err)
+				CMStatus = "failed"
+				return
+			}
 
-	//		if n > 0 {
-	//			_, err := tempFile.Write(buffer[:n])
-	//			if err != nil {
-	//				fmt.Printf("Error writing to temp file: %v\n", err)
-	//				CMStatus = "failed"
-	//				return
-	//			}
-	//			slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
+			if n > 0 {
+				_, err := tempFile.Write(buffer[:n])
+				if err != nil {
+					fmt.Printf("Error writing to temp file: %v\n", err)
+					CMStatus = "failed"
+					return
+				}
+				slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
 
-	//			totalBytesRead += n
-	//		}
+				totalBytesRead += n
+			}
 
-	//		if err == io.EOF {
-	//			CMStatus = "downloaded"
-	//			resp.Body.Close()
-	//			break
-	//		}
-	//	}
-	// }()
+			if err == io.EOF {
+				CMStatus = "downloaded"
+				resp.Body.Close()
+				break
+			}
+		}
+	}()
 
 	// Listening for message
 	for {
 		select {
-		case <-ticker.C:
-			if CMStatus == "inProgress" {
-				n, err := reader.Read(buffer)
-				if err != nil && err != io.EOF {
-					fmt.Printf("Error reading data: %v\n", err)
-					CMStatus = "failed"
-					return
-				}
-
-				if n > 0 {
-					_, err := tempFile.Write(buffer[:n])
-					if err != nil {
-						fmt.Printf("Error writing to temp file: %v\n", err)
-						CMStatus = "failed"
-						return
-					}
-					slog.Debug(fmt.Sprintf("Wrote %d bytes in chunk %v\n", n, chunkID))
-
-					totalBytesRead += n
-				}
-
-				if err == io.EOF {
-					CMStatus = "downloaded"
-					resp.Body.Close()
-					break
-				}
-			}
 		case e := <-chIn:
 			switch e.EType {
 			case reconfig:
-				data, ok := e.Data.(ReconfigCMData)
-				if !ok {
-					slog.Warn("Invalid reconfig event data")
-					continue
-				}
-				newRateLimit := int64(data.newMaxBandwidth)
-				slog.Debug(fmt.Sprintf("Received reconfig event with new rate limit: %v bytes/sec", newRateLimit))
-				updateTicker(newRateLimit)
+				// data, ok := e.Data.(ReconfigCMData)
+				// if !ok {
+				//	slog.Warn("Invalid reconfig event data")
+				//	continue
+				// }
+				// slog.Debug(fmt.Sprintf("Received reconfig event with new rate limit: %v bytes/sec", newRateLimit))
+				// updateTicker(newRateLimit)
 			case pause:
 				CMStatus = "paused"
 			case resume:
