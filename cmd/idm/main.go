@@ -258,5 +258,10 @@ func t7MaxRetry() {
 
 
 func main() {
-	t6TestingPauseAndResume()
+	// t2()
+	// t3()
+	// t4ChangingConfiguration()
+	// t5ActiveInterval()
+	// t6TestingPauseAndResume()
+	// t7MaxRetry()
 }

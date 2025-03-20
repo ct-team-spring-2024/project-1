@@ -431,15 +431,25 @@ func AsyncStartDownload(download types.Download, queue types.Queue,
 				for _, ch := range chInCM {
 					slog.Info(fmt.Sprintf("Sent message to chunks"))
 					ch <- NewResumeCMEvent()
-					fmt.Println("Sent pause msg to chunks")
+					fmt.Println("Sent resume msg to chunks")
 				}
 			}
 		}
 	}
 }
 
-// TODO inputCh should be monitored
-// TODO Why channel type is pointer????
+// States:
+// inProgress
+// paused
+// failed
+// downloaded
+// terminated
+
+// When terminated, we can shut down everything and don't listen to chIn
+
+// When downloaded or terminated, the Download thread can be stopped.
+// When inProgress, Download loop should continue.
+// When paused or failed, wait until the status is changed and download can be continued.
 func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *os.File,
 	chunkID int, downloadTicker *DownloadTicker,
 	chIn chan CMEvent, chOut chan CMREvent) {
@@ -485,10 +495,15 @@ func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *o
 
 	initFunc()
 
-	// Downloading
 	go func() {
-		for CMStatus == "inProgress" {
-			//ticker is thread safe , lock unneccessary
+		for CMStatus != "downloaded" && CMStatus != "terminated" {
+			for CMStatus != "inProgress" {
+				time.Sleep(1 * time.Second)
+			}
+			if CMStatus == "downloaded" || CMStatus == "terminated" {
+				return
+			}
+			// TODO: ticker is thread safe , lock unneccessary
 			downloadTicker.TickerMu.Lock()
 			<-downloadTicker.Ticker.C
 			downloadTicker.TickerMu.Unlock()
