@@ -147,7 +147,7 @@ func t4ChangingConfiguration() {
 	internal.UpdaterWithCount(250, eventsMap)
 }
 
-func tActiveInterval() {
+func t5ActiveInterval() {
 	opts := &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}
@@ -164,7 +164,7 @@ func tActiveInterval() {
 		Start: now.Add(-10 * time.Minute),
 		End:   now.Add(10 * time.Minute),
 	}
-	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
 	q.Destination = "./files"
 	q.MaxBandwidth = 9 * 1024 * 1024
 	internal.AddQueue(q)
@@ -182,7 +182,7 @@ func tActiveInterval() {
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 	internal.UpdaterWithCount(250, eventsMap)
 }
-func t5TestingPauseAndResume() {
+func t6TestingPauseAndResume() {
 	opts := &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}
@@ -200,12 +200,13 @@ func t5TestingPauseAndResume() {
 		Start: now.Add(-10 * time.Minute),
 		End:   now.Add(10 * time.Minute),
 	}
-	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
-	//	q.Destination = "./files"
-	q.MaxBandwidth = 28 * 1024 * 1024
+	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	q.Destination = "./files"
+	q.MaxBandwidth = 9 * 1024 * 1024
 	internal.AddQueue(q)
-	d1.Filename = "downloaded.mp4"
-	d1.Url = "https://dl33.deserver.top/www2/serial/Daredevil.Born.Again/s01/Daredevil.Born.Again.S01E04.REPACK.720p.WEB-DL.SoftSub.DigiMoviez.mkv?md5=8pKAOCubgbXPCqJFKHnCXw&expires=1742751594"
+	d1.Filename = "largefile.bin"
+	// d1.Url = "https://dl33.deserver.top/www2/serial/Daredevil.Born.Again/s01/Daredevil.Born.Again.S01E04.REPACK.720p.WEB-DL.SoftSub.DigiMoviez.mkv?md5=8pKAOCubgbXPCqJFKHnCXw&expires=1742751594"
+	d1.Url = "http://127.0.0.1:8080"
 	internal.AddDownload(d1, q.Id)
 
 	slog.Info("Initial State =>")
@@ -218,8 +219,44 @@ func t5TestingPauseAndResume() {
 	internal.UpdaterWithCount(2000, eventsMap)
 }
 
+
+// We set the max retry at 20
+// at somewhere around second 10, we will start the server(manually).
+// The download will fail about 10 times, but will continue to work afterwards.
+// If the server is started after 20s, the download will not be started
+func t6MaxRetry() {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	internal.InitState()
+	q := types.NewQueue(0)
+	d1 := types.NewDownload(0, q)
+	now := time.Now()
+	q.MaxRetriesCount = 20
+	q.MaxInProgressCount = 1
+	q.ActiveInterval = types.TimeInterval{
+		Start: now.Add(-10 * time.Minute),
+		End:   now.Add(10 * time.Minute),
+	}
+	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	q.Destination = "./files"
+	q.MaxBandwidth = 9 * 1024 * 1024
+	internal.AddQueue(q)
+	d1.Filename = "downloaded.bin"
+	d1.Url = "http://127.0.0.1:8080"
+	internal.AddDownload(d1, q.Id)
+
+	slog.Info("Initial State =>")
+	spew.Dump(internal.State)
+	eventsMap := make(map[int][]internal.IDMEvent)
+	internal.UpdaterWithCount(250, eventsMap)
+}
+
+
 func main() {
-	// t4ChangingConfiguration()
-	//tActiveInterval()
-	t5TestingPauseAndResume()
+	t6MaxRetry()
 }

@@ -85,17 +85,33 @@ func findInProgressCandidates() []types.Download {
 		for _, downloadId := range q.DownloadIds {
 			d := State.Downloads[downloadId]
 			now := time.Now()
-			if remainingInProgress > 0 &&
-				d.Status == types.Created &&
-				q.ActiveInterval.IsTimeInInterval(now) {
+
+			remainingInProgressCheck := remainingInProgress > 0
+			isCreated := d.Status == types.Created
+			isFailed := d.Status == types.Failed
+			currentLessThanMaxCheck := d.CurrentRetriesCnt < q.MaxRetriesCount
+			intervalCheck := q.ActiveInterval.IsTimeInInterval(now)
+
+			slog.Info(fmt.Sprintf("Append Created : %v %v %v",
+				remainingInProgressCheck,
+				isCreated,
+				intervalCheck))
+			if remainingInProgressCheck &&
+				isCreated &&
+				intervalCheck {
 				result = append(result, *d)
 				remainingInProgress--
 				continue
 			}
-			if remainingInProgress > 0 &&
-				d.Status == types.Failed &&
-				d.CurrentRetriesCnt < q.MaxRetriesCount &&
-				q.ActiveInterval.IsTimeInInterval(now) {
+			slog.Info(fmt.Sprintf("Append Retry : %v %v %v %v",
+				remainingInProgressCheck,
+				isFailed,
+				currentLessThanMaxCheck,
+				intervalCheck))
+			if remainingInProgressCheck &&
+				isFailed &&
+				currentLessThanMaxCheck &&
+				intervalCheck {
 				result = append(result, *d)
 				remainingInProgress--
 				continue
@@ -112,7 +128,7 @@ func UpdaterWithCount(step int, events map[int][]IDMEvent) {
 		// Some Queue/Download are added
 		updateState(events[i])
 		time.Sleep(1 * time.Second)
-		if i%3 == 0 {
+		if i % 5 == 0 {
 			slog.Info(fmt.Sprintf("================================================================================"))
 			slog.Info(fmt.Sprintf("State after step %d => ", i))
 			spew.Dump(State)
@@ -162,7 +178,7 @@ func updateState(events []IDMEvent) {
 	}
 	// 2. Fire up new candidates
 	inProgressCandidates := findInProgressCandidates()
-	//slog.Info(fmt.Sprintf("inProgressCandidates => %+v", inProgressCandidates))
+	slog.Info(fmt.Sprintf("inProgressCandidates => %+v", inProgressCandidates))
 	for _, d := range inProgressCandidates {
 		updateDownloadStatus(d.Id, types.InProgress)
 		createDownloadManager(d.Id)
@@ -198,7 +214,7 @@ func updateState(events []IDMEvent) {
 	//      The InProgress Downloads that don't abide the current configuration.
 	//      The DownloadStatus will be changed to Created.
 	resetCandidates := findResetCandidates()
-	//	slog.Info(fmt.Sprintf("resetCaadindtes => %+v", resetCandidates))
+	slog.Info(fmt.Sprintf("resetCaadindtes => %+v", resetCandidates))
 	for _, d := range resetCandidates {
 		updateDownloadStatus(d.Id, types.Created)
 		// send message to stop downloading.
@@ -240,7 +256,7 @@ func updateDownloadStatus(id int, newStatus types.DownloadStatus) {
 	State.Downloads[id].Status = newStatus
 	// 1: Update CurrentInProgressCount
 	// if oldStatus == newStatus {
-	// 	panic("old status same is new status??")
+	//	panic("old status same is new status??")
 	// }
 	if oldStatus == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
