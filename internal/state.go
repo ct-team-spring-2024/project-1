@@ -2,10 +2,12 @@ package internal
 
 import (
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
 
 	"go-idm/pkg/network"
 	"go-idm/types"
@@ -22,12 +24,20 @@ type AppState struct {
 var State *AppState
 
 func InitState() {
+
 	State = &AppState{
 		Queues:           make(map[int]*types.Queue),
 		Downloads:        make(map[int]*types.Download),
 		downloadManagers: make(map[int]*network.DownloadManager),
 		downloadTickers:  make(map[int]*network.DownloadTicker),
 	}
+	file, err := os.Create("data.json")
+	if err != nil {
+		panic(err)
+		fmt.Print(file)
+	}
+	//	CreateEncoder(file, "files.json")
+
 }
 
 func checkToBeInProgress(id int) bool {
@@ -128,7 +138,7 @@ func UpdaterWithCount(step int, events map[int][]IDMEvent) {
 		// Some Queue/Download are added
 		updateState(events[i])
 		time.Sleep(1 * time.Second)
-		if i % 5 == 0 {
+		if i%5 == 0 {
 			slog.Info(fmt.Sprintf("================================================================================"))
 			slog.Info(fmt.Sprintf("State after step %d => ", i))
 			spew.Dump(State)
@@ -139,6 +149,8 @@ func UpdaterWithCount(step int, events map[int][]IDMEvent) {
 func updateState(events []IDMEvent) {
 	// 1. Process new events sent by user.
 	//    Send the new configuration using the chIn.
+	SaveFile()
+
 	for _, e := range events {
 		switch e.EType {
 		case AddQueueEvent:
@@ -202,6 +214,10 @@ func updateState(events []IDMEvent) {
 					data := responseEvent.Data.(network.InProgressDMRData)
 					slog.Debug(fmt.Sprintf("DMR : InProgress %d", d.Id))
 					updateDMChunksByteOffset(d.Id, data.CurrentChunksByteOffset)
+				case network.SetTempFileAddress:
+					data := responseEvent.Data.(network.SetTempFileAddressDMRData)
+					updateTempFileAddress(d.Id, data.TempFileAddresses)
+
 				}
 			}
 		}()
@@ -254,7 +270,11 @@ func getQueue(id int) *types.Queue {
 
 	return result
 }
-
+func updateTempFileAddress(downloadId int, tempFileAddress map[int]string) {
+	State.mu.Lock()
+	State.Downloads[downloadId].TempFileAddresses = tempFileAddress
+	State.mu.Unlock()
+}
 func updateDownloadStatus(id int, newStatus types.DownloadStatus) {
 	State.mu.Lock()
 	oldStatus := State.Downloads[id].Status
@@ -265,11 +285,6 @@ func updateDownloadStatus(id int, newStatus types.DownloadStatus) {
 	// }
 	if oldStatus == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
-	}
-	if oldStatus == types.InProgress && newStatus == types.Paused {
-		fmt.Println("ran here 3")
-		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount--
-
 	}
 	if newStatus == types.InProgress {
 		State.Queues[State.Downloads[id].QueueId].CurrentInProgressCount++

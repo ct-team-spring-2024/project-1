@@ -263,5 +263,5 @@ func main() {
 	// t4ChangingConfiguration()
 	// t5ActiveInterval()
 	// t6TestingPauseAndResume()
-	// t7MaxRetry()
+	t7MaxRetry()
 }
