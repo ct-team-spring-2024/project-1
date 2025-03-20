@@ -277,19 +277,22 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 
 		acceptsRanges := true
 		headError := false
+		var fileSize int64
 		if err != nil {
+			fileSize = 0
 			headError = true
 			slog.Error(fmt.Sprintf("HTTP HEAD failed: %v", err))
+		} else {
+			fileSize = resp.ContentLength
 		}
-		if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
-			fmt.Println("Server does not support range requests. Downloading the entire file.")
-			acceptsRanges = false
-		}
-		fileSize := resp.ContentLength
 		if fileSize <= 0 {
 			DMStatus = "failed"
 			slog.Error(fmt.Sprintf("invalid file size: %d", fileSize))
 			return
+		}
+		if headError || resp.Header.Get("Accept-Ranges") != "bytes" {
+			fmt.Println("Server does not support range requests.")
+			acceptsRanges = false
 		}
 
 		numChunks = 3
@@ -340,6 +343,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	}
 
 	initFunc()
+	slog.Info(fmt.Sprintf("GOOOZ %s", DMStatus))
 	if DMStatus == "failed" {
 		chOut <- NewFailureDMREvent(download.Id)
 		return
