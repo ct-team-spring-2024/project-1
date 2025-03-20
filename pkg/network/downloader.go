@@ -343,7 +343,6 @@ func AsyncStartDownload(download types.Download, queue types.Queue, chIn <-chan 
 	}
 
 	initFunc()
-	slog.Info(fmt.Sprintf("GOOOZ %s", DMStatus))
 	if DMStatus == "failed" {
 		chOut <- NewFailureDMREvent(download.Id)
 		return
