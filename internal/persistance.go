@@ -35,7 +35,7 @@ func LoadState(stateAddress string) (*AppState, error) {
 	var state *AppState
 	file, err := os.Open(stateAddress)
 	if err != nil {
-		slog.Info("Error opening the file : %v", err)
+		slog.Info(fmt.Sprintf("Error opening the file : %v", err))
 		return state, err
 	}
 	defer file.Close()

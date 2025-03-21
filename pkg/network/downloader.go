@@ -269,7 +269,7 @@ var BufferSizeInBytes int64 = int64(32 * 1024)
 
 func AsyncStartDownload(download types.Download, queue types.Queue,
 	downloadTicker *DownloadTicker,
-	chIn <-chan DMEvent, chOut chan<- DMREvent) {
+	chIn <-chan DMEvent, chOut chan<- DMREvent, beginFromFirst bool) {
 	DMStatus := "inProgress"
 	var numChunks int
 	var chInCM []chan CMEvent
@@ -326,9 +326,8 @@ func AsyncStartDownload(download types.Download, queue types.Queue,
 		chInCM = make([]chan CMEvent, 0)
 		chOutCM = make([]chan CMREvent, 0)
 		//TODO : this should be changes to something else , checking the first offset is not quite right.
-		if acceptsRanges && download.CurrnetDownloadOffsets[0] != 0 {
+		if acceptsRanges && download.CurrnetDownloadOffsets[0] != 0 && !beginFromFirst {
 			for i := 0; i < numChunks; i++ {
-				fmt.Println("Running here ")
 
 				index := int64(i) * chunkSize
 				end := index + chunkSize - 1
@@ -468,6 +467,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue,
 					chInCM[i] <- NewTerminateCMEvent()
 				}
 				DMStatus = "terminated"
+				fmt.Println("terminated")
 				return
 			case Reconfig:
 				// data := event.Data.(ReconfigDMData)
@@ -555,9 +555,12 @@ func downloadChunk(url string, start, end int64, lastTimeIndex int, acceptsRange
 			if CMStatus == "downloaded" || CMStatus == "terminated" {
 				return
 			}
+			defer resp.Body.Close()
+
 			// TODO: ticker is thread safe , lock unneccessary
 			//	downloadTicker.TickerMu.Lock()
 			<-downloadTicker.Ticker.C
+
 			//downloadTicker.TickerMu.Unlock()
 
 			n, err := reader.Read(buffer)
