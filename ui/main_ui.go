@@ -8,21 +8,35 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"go-idm/internal"
 	"go-idm/ui/tab1"
 	"go-idm/ui/tab2"
 	"go-idm/ui/tab3"
 )
 
+
+var uiOut chan internal.IDMEvent = make(chan internal.IDMEvent, 1000)
+
 func main() {
-	logFile, err := os.OpenFile("form_submission.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// Logging
+	logFile, err := os.OpenFile("out.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		slog.Error("Failed to open log file", "error", err)
 		return
 	}
 	defer logFile.Close()
-	logger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(logFile, opts)
+	logger := slog.New(handler)
 	slog.SetDefault(logger)
 	slog.Info("Logging initialized")
+
+	// Setup Logic
+	internal.InitState()
+
+	// UI
 	app := tview.NewApplication()
 
 	layout, pages, t2 := buildUILayout(app)
