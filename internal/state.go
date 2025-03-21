@@ -3,6 +3,8 @@ package internal
 import (
 	"fmt"
 	"log/slog"
+	"os"
+
 	//	"os"
 	"sync"
 	"time"
@@ -48,7 +50,7 @@ func InitState() {
 	// Since these two will be nil at first , we must recreate them
 	State.downloadManagers = make(map[int]*network.DownloadManager)
 	State.downloadTickers = make(map[int]*network.DownloadTicker)
-	ResumeDownloads()
+	//	ResumeDownloads()
 
 }
 
@@ -113,6 +115,11 @@ func findInProgressCandidates() []types.Download {
 			isFailed := d.Status == types.Failed
 			currentLessThanMaxCheck := d.CurrentRetriesCnt < q.MaxRetriesCount
 			intervalCheck := q.ActiveInterval.IsTimeInInterval(now)
+			fmt.Println(intervalCheck)
+			fmt.Println(isCreated)
+			fmt.Println(remainingInProgressCheck)
+			fmt.Println(q.CurrentInProgressCount)
+			fmt.Println(remainingInProgressCheck && isCreated && intervalCheck)
 
 			slog.Info(fmt.Sprintf("Append Created : %v %v %v",
 				remainingInProgressCheck,
@@ -169,25 +176,29 @@ func UpdateState(events []IDMEvent) {
 			data := e.Data.(AddQueueEventData)
 			slog.Info(fmt.Sprintf("flag 1 => %+v", data))
 			queue := types.Queue{
-				Id: data.QueueId,
-				DownloadIds: make([]int, 0),
-				MaxInProgressCount: data.MaxInProgressCount,
+				Id:                     data.QueueId,
+				DownloadIds:            make([]int, 0),
+				MaxInProgressCount:     data.MaxInProgressCount,
 				CurrentInProgressCount: 0,
-				MaxRetriesCount: data.MaxRetriesCount,
-				Destination: data.Destination,
-				ActiveInterval: data.ActiveInterval,
-				MaxBandwidth: data.MaxBandwidth,
+				MaxRetriesCount:        data.MaxRetriesCount,
+				Destination:            data.Destination,
+				ActiveInterval:         data.ActiveInterval,
+				MaxBandwidth:           data.MaxBandwidth,
 			}
 			slog.Info(fmt.Sprintf("flag 2 => %+v", queue))
 			AddQueue(queue)
 		case ModifyQueueEvent:
 			data := e.Data.(ModifyQueueEventData)
+			queue := State.Queues[data.queueId]
 			if data.newMaxBandwidth != nil {
 				State.Queues[data.queueId].MaxBandwidth = *data.newMaxBandwidth
+
 				//	State.downloadTickers[data.queueId].TickerMu.Lock()
 				State.mu.Lock()
 				State.downloadTickers[data.queueId].Ticker.Stop()
-				State.downloadTickers[data.queueId].Ticker = time.NewTicker(time.Second /
+				// State.downloadTickers[data.queueId].Ticker = time.NewTicker(time.Second /
+				// 	time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
+				State.downloadTickers[data.queueId].Ticker.Reset(time.Second /
 					time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
 				//	State.downloadTickers[data.queueId].TickerMu.Unlock()
 				State.mu.Unlock()
@@ -195,17 +206,37 @@ func UpdateState(events []IDMEvent) {
 			if data.newActiveInterval != nil {
 				State.Queues[data.queueId].ActiveInterval = *data.newActiveInterval
 			}
+			if data.newMaxinProgressCnt != queue.MaxInProgressCount {
+				if data.newMaxinProgressCnt < 0 {
+					slog.Error("max in progress count cannot be less than zero")
+					return
+				}
+				queue.MaxInProgressCount = data.newMaxinProgressCnt
+			}
+			fmt.Println(data.newQueueDestination)
+			if data.newQueueDestination != "" {
+				State.Queues[data.queueId].Destination = data.newQueueDestination
+				for _, d := range State.Downloads {
+					if d.Id == queue.Id {
+						State.downloadManagers[d.Id].EventsChan <- network.NewModifyQueueEvent(d.Id, data.newQueueDestination)
+					}
+				}
+			}
+			if data.maxRetriesCount >= 0 && queue.MaxRetriesCount != data.maxRetriesCount {
+				queue.MaxRetriesCount = data.maxRetriesCount
+
+			}
 		case AddDownloadEvent:
 			data := e.Data.(AddDownloadEventData)
 			download := types.Download{
-				Id: data.Id,
-				Url: data.Url,
-				Filename: data.Filename,
-				Status: types.Created,
-				CurrentRetriesCnt: 0,
-				QueueId: data.QueueId,
+				Id:                     data.Id,
+				Url:                    data.Url,
+				Filename:               data.Filename,
+				Status:                 types.Created,
+				CurrentRetriesCnt:      0,
+				QueueId:                data.QueueId,
 				CurrnetDownloadOffsets: make(map[int]int),
-				TempFileAddresses: make(map[int]string),
+				TempFileAddresses:      make(map[int]string),
 			}
 			AddDownload(download, download.QueueId)
 		case PauseDownloadEvent:
@@ -222,6 +253,18 @@ func UpdateState(events []IDMEvent) {
 			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Resume}
 
 		case DeleteDownloadEvent:
+
+			data := e.Data.(DeleteDownloadEventData)
+			id := data.DownloadID
+			updateDownloadStatus(id, types.Failed)
+			fmt.Println("finished updating status")
+			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Terminatee}
+			time.Sleep(2 * time.Second)
+			State.mu.Lock()
+
+			DeleteDownloadTempFiles(id)
+
+			State.mu.Unlock()
 		}
 	}
 	// 2. Fire up new candidates
@@ -233,7 +276,7 @@ func UpdateState(events []IDMEvent) {
 		chIn, chOut := getChannel(d.Id)
 		queue := getQueue(d.Id)
 		downloadTicker := getDownloadTicker(queue.Id)
-		go network.AsyncStartDownload(d, *queue, downloadTicker, chIn, chOut)
+		go network.AsyncStartDownload(d, *queue, downloadTicker, chIn, chOut, true)
 		// because the exact order of changing states are important,
 		// we cannot use the pull based approach.
 		// However, again, DM will not get terminated until we send the terminate message for it.
@@ -252,9 +295,11 @@ func UpdateState(events []IDMEvent) {
 					updateDownloadStatus(d.Id, types.Failed)
 					return
 				case network.InProgress:
+					fmt.Println("Send chunk status msg")
 					data := responseEvent.Data.(network.InProgressDMRData)
 					slog.Debug(fmt.Sprintf("DMR : InProgress %d", d.Id))
 					updateDMChunksByteOffset(d.Id, data.CurrentChunksByteOffset)
+				//	fmt.Println(data.CurrentChunksByteOffset[0])
 				case network.SetTempFileAddress:
 					data := responseEvent.Data.(network.SetTempFileAddressDMRData)
 					updateTempFileAddress(d.Id, data.TempFileAddresses)
@@ -346,6 +391,19 @@ func updateDMChunksByteOffset(downloadId int, currentChunksByteOffset map[int]in
 
 	State.mu.Unlock()
 }
+func DeleteDownloadTempFiles(downloadId int) {
+	d := State.Downloads[downloadId]
+	for _, v := range d.TempFileAddresses {
+		err := os.Remove(v)
+		if err != nil {
+			slog.Error("Error deleting temp files for download")
+		}
+	}
+
+	Delete(d.Id)
+	delete(State.Downloads, d.Id)
+
+}
 func ResumeDownloads() {
 	State.mu.Lock()
 	for _, q := range State.Queues {
@@ -362,7 +420,7 @@ func ResumeDownloads() {
 			chIn, chOut := getChannel(d.Id)
 			queue := getQueue(d.Id)
 			downloadTicker := getDownloadTicker(queue.Id)
-			go network.AsyncStartDownload(*d, *queue, downloadTicker, chIn, chOut)
+			go network.AsyncStartDownload(*d, *queue, downloadTicker, chIn, chOut, false)
 			// because the exact order of changing states are important,
 			// we cannot use the pull based approach.
 			// However, again, DM will not get terminated until we send the terminate message for it.
