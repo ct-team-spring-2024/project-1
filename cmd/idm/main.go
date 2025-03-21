@@ -12,6 +12,18 @@ import (
 	"go-idm/types"
 )
 
+func getOneKey[K comparable, V any](m map[K]V) (K, bool) {
+	// Iterate over the map to fetch the first key
+	for key := range m {
+		return key, true // Return the first key and true to indicate success
+	}
+
+	// If the map is empty, return the zero value of K and false
+	var zeroKey K
+	return zeroKey, false
+}
+
+
 // same as two. DELETE
 func t1() {
 	internal.InitState()
@@ -254,10 +266,54 @@ func t7MaxRetry() {
 	eventsMap := make(map[int][]internal.IDMEvent)
 	internal.UpdaterWithCount(250, eventsMap)
 }
+
 func t8Persistance() {
 	internal.InitState()
 	eventsMap := make(map[int][]internal.IDMEvent)
 	internal.UpdaterWithCount(250, eventsMap)
+}
+
+// To make it more real, we will only use the IDMEvents (even for creating queues and downloads)
+func t9ManyDownloadsAndPauseResumes() {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	internal.InitState()
+	now := time.Now()
+	qId := 0
+	e1 := internal.NewAddQueueEvent(
+		&qId,
+		1,
+		0,
+		"./files",
+		types.TimeInterval{
+			Start: now.Add(-10 * time.Minute),
+			End:   now.Add(10 * time.Minute),
+		},
+		30 * 1024 * 1024)
+	events := []internal.IDMEvent{e1}
+	for i := 0; i < 10; i++ {
+		dId := i
+		e2 := internal.NewAddDownloadEvent(
+			&dId,
+			fmt.Sprintf("http://127.0.0.1:8080/file%d.bin", i+1),
+			fmt.Sprintf("downloaded%d.bin", i+1),
+			qId,
+		)
+		events = append(events, e2)
+	}
+	slog.Info("Initial State =>")
+	spew.Dump(internal.State)
+	eventsMap := make(map[int][]internal.IDMEvent)
+	eventsMap[0] = events
+	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
+	internal.UpdaterWithCount(100, eventsMap)
+	slog.Info("ENDED")
+	spew.Dump(internal.State)
 }
 
 func main() {
@@ -266,7 +322,7 @@ func main() {
 	// t4ChangingConfiguration()
 	// t5ActiveInterval()
 	// t6TestingPauseAndResume()
-	//t6TestingPauseAndResume()
-	//t7MaxRetry()
-	t8Persistance()
+	// t7MaxRetry()
+	// t8Persistance()
+	// t9ManyDownloadsAndPauseResumes()
 }
