@@ -6,6 +6,7 @@ import (
 )
 
 type IDMEType int
+
 const (
 	AddQueueEvent IDMEType = iota
 	ModifyQueueEvent
@@ -15,7 +16,6 @@ const (
 	RetryDownloadEvent
 	DeleteDownloadEvent
 )
-
 
 type IDMEvent struct {
 	EType IDMEType
@@ -32,16 +32,18 @@ type AddQueueEventData struct {
 }
 
 type ModifyQueueEventData struct {
-	queueId           int
-	newMaxBandwidth   *int64
-	newActiveInterval *types.TimeInterval
+	queueId             int
+	newMaxBandwidth     *int64
+	newActiveInterval   *types.TimeInterval
+	newQueueDestination string
+	newMaxinProgressCnt int
 }
 
 type AddDownloadEventData struct {
-	Id                int
-	Url               string
-	Filename          string
-	QueueId           int
+	Id       int
+	Url      string
+	Filename string
+	QueueId  int
 }
 
 type PauseDownloadEventData struct {
@@ -61,7 +63,6 @@ func generateUniqueId() int {
 	return int(uuidValue.ID())
 }
 
-
 func NewAddQueueEvent(
 	id *int,
 	maxInProgressCount int,
@@ -80,25 +81,27 @@ func NewAddQueueEvent(
 	return IDMEvent{
 		EType: AddQueueEvent,
 		Data: AddQueueEventData{
-			QueueId:       finalId,
+			QueueId:            finalId,
 			MaxInProgressCount: maxInProgressCount,
 			MaxRetriesCount:    maxRetriesCount,
-			Destination:       destination,
-			ActiveInterval:    activeInterval,
-			MaxBandwidth:      maxBandwidth,
+			Destination:        destination,
+			ActiveInterval:     activeInterval,
+			MaxBandwidth:       maxBandwidth,
 		},
 	}
 }
 
-func NewModifyQueueEvent(queueId int, newMaxBandwidth *int64, newActiveInterval *types.TimeInterval) IDMEvent {
-    return IDMEvent{
-	EType: ModifyQueueEvent,
-	Data: ModifyQueueEventData{
-		queueId: queueId,
-		newMaxBandwidth: newMaxBandwidth,
-		newActiveInterval: newActiveInterval,
-	},
-    }
+func NewModifyQueueEvent(queueId int, newMaxBandwidth *int64, newActiveInterval *types.TimeInterval, newQueueDestination string, maxInProgressCount int) IDMEvent {
+	return IDMEvent{
+		EType: ModifyQueueEvent,
+		Data: ModifyQueueEventData{
+			queueId:             queueId,
+			newMaxBandwidth:     newMaxBandwidth,
+			newActiveInterval:   newActiveInterval,
+			newQueueDestination: newQueueDestination,
+			newMaxinProgressCnt: maxInProgressCount,
+		},
+	}
 }
 
 func NewAddDownloadEvent(
@@ -117,37 +120,37 @@ func NewAddDownloadEvent(
 	return IDMEvent{
 		EType: AddDownloadEvent,
 		Data: AddDownloadEventData{
-			Id:                finalId,
-			Url:               url,
-			Filename:          filename,
-			QueueId:           queueId,
+			Id:       finalId,
+			Url:      url,
+			Filename: filename,
+			QueueId:  queueId,
 		},
 	}
 }
 
 func NewPauseDownloadEvent(downloadID int) IDMEvent {
-    return IDMEvent{
-	EType: PauseDownloadEvent,
-	Data: PauseDownloadEventData{
-	    DownloadID: downloadID,
-	},
-    }
+	return IDMEvent{
+		EType: PauseDownloadEvent,
+		Data: PauseDownloadEventData{
+			DownloadID: downloadID,
+		},
+	}
 }
 
 func NewResumeDownloadEvent(downloadID int) IDMEvent {
-    return IDMEvent{
-	EType: ResumeDownloadEvent,
-	Data: ResumeDownloadEventData{
-	    DownloadID: downloadID,
-	},
-    }
+	return IDMEvent{
+		EType: ResumeDownloadEvent,
+		Data: ResumeDownloadEventData{
+			DownloadID: downloadID,
+		},
+	}
 }
 
 func NewDeleteDownloadEvent(downloadID int) IDMEvent {
-    return IDMEvent{
-	EType: DeleteDownloadEvent,
-	Data: DeleteDownloadEventData{
-	    DownloadID: downloadID,
-	},
-    }
+	return IDMEvent{
+		EType: DeleteDownloadEvent,
+		Data: DeleteDownloadEventData{
+			DownloadID: downloadID,
+		},
+	}
 }

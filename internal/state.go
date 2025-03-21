@@ -183,9 +183,9 @@ func updateState(events []IDMEvent) {
 			AddQueue(queue)
 		case ModifyQueueEvent:
 			data := e.Data.(ModifyQueueEventData)
+			queue := State.Queues[data.queueId]
 			if data.newMaxBandwidth != nil {
 				State.Queues[data.queueId].MaxBandwidth = *data.newMaxBandwidth
-				State.Queues[data.queueId].Destination = data.newQueueDestination
 
 				//	State.downloadTickers[data.queueId].TickerMu.Lock()
 				State.mu.Lock()
@@ -199,6 +199,23 @@ func updateState(events []IDMEvent) {
 			}
 			if data.newActiveInterval != nil {
 				State.Queues[data.queueId].ActiveInterval = *data.newActiveInterval
+			}
+			if data.newMaxinProgressCnt != queue.MaxInProgressCount {
+				if data.newMaxinProgressCnt < 0 {
+					slog.Error("max in progress count cannot be less than zero")
+					return
+				}
+				queue.MaxInProgressCount = data.newMaxinProgressCnt
+			}
+			fmt.Println(data.newQueueDestination)
+			if data.newQueueDestination != "" {
+				State.Queues[data.queueId].Destination = data.newQueueDestination
+				for _, d := range State.Downloads {
+					if d.Id == queue.Id {
+						State.downloadManagers[d.Id].EventsChan <- network.NewModifyQueueEvent(d.Id, data.newQueueDestination)
+					}
+				}
+
 			}
 		case AddDownloadEvent:
 			data := e.Data.(AddDownloadEventData)
@@ -227,12 +244,18 @@ func updateState(events []IDMEvent) {
 			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Resume}
 
 		case DeleteDownloadEvent:
+
 			data := e.Data.(DeleteDownloadEventData)
 			id := data.DownloadID
 			updateDownloadStatus(id, types.Failed)
 			fmt.Println("finished updating status")
 			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Terminatee}
+			time.Sleep(2 * time.Second)
+			State.mu.Lock()
+
 			DeleteDownloadTempFiles(id)
+
+			State.mu.Unlock()
 		}
 	}
 	// 2. Fire up new candidates
@@ -366,8 +389,10 @@ func DeleteDownloadTempFiles(downloadId int) {
 		if err != nil {
 			slog.Error("Error deleting temp files for download")
 		}
-
 	}
+
+	Delete(d.Id)
+	delete(State.Downloads, d.Id)
 
 }
 func ResumeDownloads() {

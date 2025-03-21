@@ -32,6 +32,7 @@ const (
 	Pause
 	Resume
 	Terminatee
+	ModifyQueueDest
 )
 
 type DMEvent struct {
@@ -53,6 +54,12 @@ func NewReconfigDMEvent(downloadId int) DMEvent {
 		Data: ReconfigDMData{
 			downloadId: downloadId,
 		},
+	}
+}
+func NewModifyQueueEvent(downloadId int, newDest string) DMEvent {
+	return DMEvent{
+		EType: ModifyQueueDest,
+		Data:  newDest,
 	}
 }
 
@@ -486,6 +493,10 @@ func AsyncStartDownload(download types.Download, queue types.Queue,
 					ch <- NewResumeCMEvent()
 					fmt.Println("Sent resume msg to chunks")
 				}
+			case ModifyQueueDest:
+				//Because the queue dest has changes , this should work
+				absolutePath = filepath.Join(queue.Destination, download.Filename)
+
 			}
 		}
 	}
