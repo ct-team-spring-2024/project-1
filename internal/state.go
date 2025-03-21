@@ -185,6 +185,8 @@ func updateState(events []IDMEvent) {
 			data := e.Data.(ModifyQueueEventData)
 			if data.newMaxBandwidth != nil {
 				State.Queues[data.queueId].MaxBandwidth = *data.newMaxBandwidth
+				State.Queues[data.queueId].Destination = data.newQueueDestination
+
 				//	State.downloadTickers[data.queueId].TickerMu.Lock()
 				State.mu.Lock()
 				State.downloadTickers[data.queueId].Ticker.Stop()
