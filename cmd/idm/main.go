@@ -323,10 +323,6 @@ func main() {
 	// t5ActiveInterval()
 	// t6TestingPauseAndResume()
 	// t7MaxRetry()
-	//
-	// t7MaxRetry()
-	//t6TestingPauseAndResume()
-	//t7MaxRetry()
 	// t8Persistance()
-	t9ManyDownloadsAndPauseResumes()
+	// t9ManyDownloadsAndPauseResumes()
 }
