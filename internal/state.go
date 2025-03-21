@@ -111,6 +111,11 @@ func findInProgressCandidates() []types.Download {
 			isFailed := d.Status == types.Failed
 			currentLessThanMaxCheck := d.CurrentRetriesCnt < q.MaxRetriesCount
 			intervalCheck := q.ActiveInterval.IsTimeInInterval(now)
+			fmt.Println(intervalCheck)
+			fmt.Println(isCreated)
+			fmt.Println(remainingInProgressCheck)
+			fmt.Println(q.CurrentInProgressCount)
+			fmt.Println(remainingInProgressCheck && isCreated && intervalCheck)
 
 			slog.Info(fmt.Sprintf("Append Created : %v %v %v",
 				remainingInProgressCheck,
@@ -237,7 +242,7 @@ func updateState(events []IDMEvent) {
 		chIn, chOut := getChannel(d.Id)
 		queue := getQueue(d.Id)
 		downloadTicker := getDownloadTicker(queue.Id)
-		go network.AsyncStartDownload(d, *queue, downloadTicker, chIn, chOut)
+		go network.AsyncStartDownload(d, *queue, downloadTicker, chIn, chOut, true)
 		// because the exact order of changing states are important,
 		// we cannot use the pull based approach.
 		// However, again, DM will not get terminated until we send the terminate message for it.
@@ -256,9 +261,11 @@ func updateState(events []IDMEvent) {
 					updateDownloadStatus(d.Id, types.Failed)
 					return
 				case network.InProgress:
+					fmt.Println("Send chunk status msg")
 					data := responseEvent.Data.(network.InProgressDMRData)
 					slog.Debug(fmt.Sprintf("DMR : InProgress %d", d.Id))
 					updateDMChunksByteOffset(d.Id, data.CurrentChunksByteOffset)
+					fmt.Println(data.CurrentChunksByteOffset[0])
 				case network.SetTempFileAddress:
 					data := responseEvent.Data.(network.SetTempFileAddressDMRData)
 					updateTempFileAddress(d.Id, data.TempFileAddresses)
@@ -377,7 +384,7 @@ func ResumeDownloads() {
 			chIn, chOut := getChannel(d.Id)
 			queue := getQueue(d.Id)
 			downloadTicker := getDownloadTicker(queue.Id)
-			go network.AsyncStartDownload(*d, *queue, downloadTicker, chIn, chOut)
+			go network.AsyncStartDownload(*d, *queue, downloadTicker, chIn, chOut, false)
 			// because the exact order of changing states are important,
 			// we cannot use the pull based approach.
 			// However, again, DM will not get terminated until we send the terminate message for it.
