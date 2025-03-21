@@ -3,7 +3,7 @@ package internal
 import (
 	"fmt"
 	"log/slog"
-	"os"
+	//	"os"
 	"sync"
 	"time"
 
@@ -24,19 +24,27 @@ type AppState struct {
 var State *AppState
 
 func InitState() {
-
-	State = &AppState{
-		Queues:           make(map[int]*types.Queue),
-		Downloads:        make(map[int]*types.Download),
-		downloadManagers: make(map[int]*network.DownloadManager),
-		downloadTickers:  make(map[int]*network.DownloadTicker),
-	}
-	file, err := os.Create("data.json")
+	var err error
+	State, err = LoadState("C:/Users/Asus/Documents/GitHub/project-1/cmd/idm/data.json")
 	if err != nil {
-		panic(err)
-		fmt.Print(file)
+		fmt.Println(err)
 	}
-	//	CreateEncoder(file, "files.json")
+	fmt.Println("Initial state is ................................................................")
+	fmt.Println(State)
+
+	if State == nil {
+		State = &AppState{
+			Queues:           make(map[int]*types.Queue),
+			Downloads:        make(map[int]*types.Download),
+			downloadManagers: make(map[int]*network.DownloadManager),
+			downloadTickers:  make(map[int]*network.DownloadTicker),
+		}
+		return
+	}
+	// Since these two will be nil at first , we must recreate them
+	State.downloadManagers = make(map[int]*network.DownloadManager)
+	State.downloadTickers = make(map[int]*network.DownloadTicker)
+	ResumeDownloads()
 
 }
 
@@ -158,11 +166,13 @@ func updateState(events []IDMEvent) {
 			data := e.Data.(ModifyQueueEventData)
 			if data.newMaxBandwidth != nil {
 				State.Queues[data.queueId].MaxBandwidth = *data.newMaxBandwidth
-				State.downloadTickers[data.queueId].TickerMu.Lock()
+				//	State.downloadTickers[data.queueId].TickerMu.Lock()
+				State.mu.Lock()
 				State.downloadTickers[data.queueId].Ticker.Stop()
 				State.downloadTickers[data.queueId].Ticker = time.NewTicker(time.Second /
 					time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
-				State.downloadTickers[data.queueId].TickerMu.Unlock()
+				//	State.downloadTickers[data.queueId].TickerMu.Unlock()
+				State.mu.Unlock()
 			}
 			if data.newActiveInterval != nil {
 				State.Queues[data.queueId].ActiveInterval = *data.newActiveInterval
@@ -304,6 +314,54 @@ func updateDMChunksByteOffset(downloadId int, currentChunksByteOffset map[int]in
 	State.Downloads[downloadId].CurrnetDownloadOffsets = currentChunksByteOffset
 
 	State.mu.Unlock()
+}
+func ResumeDownloads() {
+	State.mu.Lock()
+	for _, q := range State.Queues {
+		if q.MaxBandwidth != 0 {
+			State.downloadTickers[q.Id] = &network.DownloadTicker{Ticker: time.NewTicker(time.Second /
+				time.Duration(q.MaxBandwidth/network.BufferSizeInBytes))}
+		}
+	}
+	State.mu.Unlock()
+	for _, d := range State.Downloads {
+		if d.Status == types.InProgress {
+			updateDownloadStatus(d.Id, types.InProgress)
+			createDownloadManager(d.Id)
+			chIn, chOut := getChannel(d.Id)
+			queue := getQueue(d.Id)
+			downloadTicker := getDownloadTicker(queue.Id)
+			go network.AsyncStartDownload(*d, *queue, downloadTicker, chIn, chOut)
+			// because the exact order of changing states are important,
+			// we cannot use the pull based approach.
+			// However, again, DM will not get terminated until we send the terminate message for it.
+			go func() {
+				for responseEvent := range chOut {
+					// Motherfucker! this log caused the concurrent access error.
+					// (because the log uses the responseEvent in a async way, but it is also processed after ward!)
+					// slog.Info(fmt.Sprintf("Response Event for %d => %+v", d.Id, responseEvent))
+					switch responseEvent.EType {
+					case network.Completed:
+						slog.Debug(fmt.Sprintf("DMR : Completed %d", d.Id))
+						updateDownloadStatus(d.Id, types.Completed)
+						return
+					case network.Failure:
+						slog.Debug(fmt.Sprintf("DMR : Failure %d", d.Id))
+						updateDownloadStatus(d.Id, types.Failed)
+						return
+					case network.InProgress:
+						data := responseEvent.Data.(network.InProgressDMRData)
+						slog.Debug(fmt.Sprintf("DMR : InProgress %d", d.Id))
+						updateDMChunksByteOffset(d.Id, data.CurrentChunksByteOffset)
+					case network.SetTempFileAddress:
+						data := responseEvent.Data.(network.SetTempFileAddressDMRData)
+						updateTempFileAddress(d.Id, data.TempFileAddresses)
+
+					}
+				}
+			}()
+		}
+	}
 }
 
 func createDownloadManager(downloadId int) {
