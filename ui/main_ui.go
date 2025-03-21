@@ -5,39 +5,46 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 
 	"go-idm/ui/tab1"
 	"go-idm/ui/tab2"
 	"go-idm/ui/tab3"
-
-	"github.com/rivo/tview"
 )
 
 func main() {
 	app := tview.NewApplication()
+	layout, pages, t2 := buildUILayout(app)
+	setGlobalKeyBindings(layout, pages, app)
+	go autoRefresh(t2, app)
 
-	// Initating the tabs
+	if err := app.SetRoot(layout, true).Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func buildUILayout(app *tview.Application) (layout *tview.Flex, pages *tview.Pages, t2 *tab2.Tab2) {
 	t1 := tab1.NewTab1()
-	t2 := tab2.NewTab2()
+	t2 = tab2.NewTab2()
 	t3 := tab3.NewTab3()
 
-	// Add each tab as a page
-	pages := tview.NewPages().
+	pages = tview.NewPages().
 		AddPage("tab1", t1.Form, true, false).
-		AddPage("tab2", t2.Table, true, true).
-		AddPage("tab3", t3.Table, true, false)
+		AddPage("tab2", t2.Layout, true, true).
+		AddPage("tab3", t3.Pages, true, false)
 
-	// Header and footer
-	header := tview.NewTextView().SetText("[F1] Add Download   [F2] Downloads   [F3] Queues").SetTextAlign(tview.AlignLeft)
-	footer := tview.NewTextView().SetText("Escape: Quit").SetTextAlign(tview.AlignLeft)
+	header := tview.NewTextView().
+		SetText("[F1] Add Download   [F2] Downloads   [F3] Queues   [Esc] Quit").
+		SetTextAlign(tview.AlignLeft)
 
-	// Designing the header, footer and the layout for pages
-	layout := tview.NewFlex().SetDirection(tview.FlexRow).
+	layout = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).
-		AddItem(pages, 0, 1, true).
-		AddItem(footer, 1, 0, false)
+		AddItem(pages, 0, 1, true)
 
-	// Setting keystrokes to their respective tabs
+	return layout, pages, t2
+}
+
+func setGlobalKeyBindings(layout *tview.Flex, pages *tview.Pages, app *tview.Application) {
 	layout.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyF1:
@@ -51,23 +58,16 @@ func main() {
 		}
 		return event
 	})
+}
 
-	// Coroutine Auto-refresh for the Downloads List
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			app.QueueUpdateDraw(func() {
-				// TODO: Implement the auto-refresh with correct logic here
-				if t2.Table.GetRowCount() > 1 {
-					t2.Table.GetCell(1, 2).SetText("Updated")
-				}
-			})
-		}
-	}()
-
-	// Log for any errors
-	if err := app.SetRoot(layout, true).Run(); err != nil {
-		log.Fatal(err)
+func autoRefresh(t2 *tab2.Tab2, app *tview.Application) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		app.QueueUpdateDraw(func() {
+			if t2.Table.GetRowCount() > 1 {
+				t2.Table.GetCell(1, 2).SetText("Updated")
+			}
+		})
 	}
 }
