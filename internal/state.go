@@ -33,8 +33,8 @@ func InitState() {
 	}
 	file, err := os.Create("data.json")
 	if err != nil {
-		panic(err)
 		fmt.Print(file)
+		panic(err)
 	}
 	//	CreateEncoder(file, "files.json")
 
@@ -154,6 +154,18 @@ func updateState(events []IDMEvent) {
 	for _, e := range events {
 		switch e.EType {
 		case AddQueueEvent:
+			data := e.Data.(AddQueueEventData)
+			queue := types.Queue{
+				Id: data.QueueId,
+				DownloadIds: make([]int, 0),
+				MaxInProgressCount: data.MaxInProgressCount,
+				CurrentInProgressCount: 0,
+				MaxRetriesCount: data.MaxRetriesCount,
+				Destination: data.Destination,
+				ActiveInterval: data.ActiveInterval,
+				MaxBandwidth: data.MaxBandwidth,
+			}
+			AddQueue(queue)
 		case ModifyQueueEvent:
 			data := e.Data.(ModifyQueueEventData)
 			if data.newMaxBandwidth != nil {
@@ -167,6 +179,19 @@ func updateState(events []IDMEvent) {
 			if data.newActiveInterval != nil {
 				State.Queues[data.queueId].ActiveInterval = *data.newActiveInterval
 			}
+		case AddDownloadEvent:
+			data := e.Data.(AddDownloadEventData)
+			download := types.Download{
+				Id: data.Id,
+				Url: data.Url,
+				Filename: data.Filename,
+				Status: types.Created,
+				CurrentRetriesCnt: 0,
+				QueueId: data.QueueId,
+				CurrnetDownloadOffsets: make(map[int]int),
+				TempFileAddresses: make(map[int]string),
+			}
+			AddDownload(download, download.QueueId)
 		case PauseDownloadEvent:
 			data := e.Data.(PauseDownloadEventData)
 			id := data.DownloadID

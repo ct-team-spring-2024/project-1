@@ -1,11 +1,15 @@
 package internal
 
-import "go-idm/types"
+import (
+	"github.com/google/uuid"
+	"go-idm/types"
+)
 
 type IDMEType int
 const (
 	AddQueueEvent IDMEType = iota
 	ModifyQueueEvent
+	AddDownloadEvent
 	PauseDownloadEvent
 	ResumeDownloadEvent
 	RetryDownloadEvent
@@ -19,12 +23,25 @@ type IDMEvent struct {
 }
 
 type AddQueueEventData struct {
+	QueueId            int
+	MaxInProgressCount int
+	MaxRetriesCount    int
+	Destination        string
+	ActiveInterval     types.TimeInterval
+	MaxBandwidth       int64
 }
 
 type ModifyQueueEventData struct {
 	queueId           int
 	newMaxBandwidth   *int64
 	newActiveInterval *types.TimeInterval
+}
+
+type AddDownloadEventData struct {
+	Id                int
+	Url               string
+	Filename          string
+	QueueId           int
 }
 
 type PauseDownloadEventData struct {
@@ -39,12 +56,38 @@ type DeleteDownloadEventData struct {
 	DownloadID int
 }
 
-func NewAddQueueEvent() IDMEvent {
-    return IDMEvent{
-	EType: AddQueueEvent,
-	Data: AddQueueEventData{
-	},
-    }
+func generateUniqueId() int {
+	uuidValue := uuid.New()
+	return int(uuidValue.ID())
+}
+
+
+func NewAddQueueEvent(
+	id *int,
+	maxInProgressCount int,
+	maxRetriesCount int,
+	destination string,
+	activeInterval types.TimeInterval,
+	maxBandwidth int64,
+) IDMEvent {
+	var finalId int
+	if id == nil {
+		finalId = generateUniqueId()
+	} else {
+		finalId = *id
+	}
+
+	return IDMEvent{
+		EType: AddQueueEvent,
+		Data: AddQueueEventData{
+			QueueId:       finalId,
+			MaxInProgressCount: maxInProgressCount,
+			MaxRetriesCount:    maxRetriesCount,
+			Destination:       destination,
+			ActiveInterval:    activeInterval,
+			MaxBandwidth:      maxBandwidth,
+		},
+	}
 }
 
 func NewModifyQueueEvent(queueId int, newMaxBandwidth *int64, newActiveInterval *types.TimeInterval) IDMEvent {
@@ -56,6 +99,30 @@ func NewModifyQueueEvent(queueId int, newMaxBandwidth *int64, newActiveInterval 
 		newActiveInterval: newActiveInterval,
 	},
     }
+}
+
+func NewAddDownloadEvent(
+	id *int,
+	url string,
+	filename string,
+	queueId int,
+) IDMEvent {
+	var finalId int
+	if id == nil {
+		finalId = generateUniqueId()
+	} else {
+		finalId = *id
+	}
+
+	return IDMEvent{
+		EType: AddDownloadEvent,
+		Data: AddDownloadEventData{
+			Id:                finalId,
+			Url:               url,
+			Filename:          filename,
+			QueueId:           queueId,
+		},
+	}
 }
 
 func NewPauseDownloadEvent(downloadID int) IDMEvent {
