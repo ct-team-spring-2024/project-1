@@ -1,8 +1,9 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"time"
+	"os"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -13,13 +14,23 @@ import (
 )
 
 func main() {
+	logFile, err := os.OpenFile("form_submission.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Error("Failed to open log file", "error", err)
+		return
+	}
+	defer logFile.Close()
+	logger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+	slog.Info("Logging initialized")
 	app := tview.NewApplication()
+
 	layout, pages, t2 := buildUILayout(app)
 	setGlobalKeyBindings(layout, pages, app)
 	go autoRefresh(t2, app)
 
 	if err := app.SetRoot(layout, true).Run(); err != nil {
-		log.Fatal(err)
+		slog.Error("123")
 	}
 }
 

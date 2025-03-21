@@ -1,7 +1,7 @@
 package tab1
 
 import (
-	"fmt"
+	"log/slog"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -44,7 +44,17 @@ func okButtonHandler(form *tview.Form) func() {
 			form.GetFormItemByLabel("Output File").(*tview.InputField).SetText("This field is required")
 			form.SetFocus(2)
 		} else {
-			fmt.Println("Download added!")
+			slog.Info("FK")
+			url := form.GetFormItemByLabel("URL").(*tview.InputField).GetText()
+			queueIndex, _ := form.GetFormItemByLabel("Queue").(*tview.DropDown).GetCurrentOption()
+			queueName := staticQueues[queueIndex]
+			outputFile := form.GetFormItemByLabel("Output File").(*tview.InputField).GetText()
+			slog.Info("Submitted Data",
+				"url", url,
+				"queue", queueName,
+				"output_file", outputFile,
+			)
+
 			form.GetFormItemByLabel("URL").(*tview.InputField).SetText("")
 			form.GetFormItemByLabel("Queue").(*tview.DropDown).SetCurrentOption(0)
 			form.GetFormItemByLabel("Output File").(*tview.InputField).SetText("")
