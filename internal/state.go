@@ -54,6 +54,20 @@ func InitState() {
 
 }
 
+func GetQueueIds() []int {
+	State.mu.Lock()
+
+	var queueIds []int
+
+	for id := range State.Queues {
+		queueIds = append(queueIds, id)
+	}
+
+	State.mu.Unlock()
+
+	return queueIds
+}
+
 func checkToBeInProgress(id int) bool {
 
 	result := false
@@ -197,7 +211,7 @@ func UpdateState(events []IDMEvent) {
 				State.mu.Lock()
 				State.downloadTickers[data.queueId].Ticker.Stop()
 				// State.downloadTickers[data.queueId].Ticker = time.NewTicker(time.Second /
-				// 	time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
+				//	time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
 				State.downloadTickers[data.queueId].Ticker.Reset(time.Second /
 					time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
 				//	State.downloadTickers[data.queueId].TickerMu.Unlock()
@@ -319,9 +333,8 @@ func UpdateState(events []IDMEvent) {
 		chIn, _ := getChannel(d.Id)
 		chIn <- network.NewTerminateDMEvent(d.Id)
 	}
-	// 4. Ask for updates from the DMs.
-	//    Update the state accordingly.
-	//    This is done in the DMWatcher
+	slog.Info(fmt.Sprintf("State after update state"))
+	slog.Info(spew.Sdump(State))
 }
 
 // TODO: This is unneccessery contention! Because we are storing the chans in a

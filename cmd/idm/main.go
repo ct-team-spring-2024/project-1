@@ -156,7 +156,7 @@ func t4ChangingConfiguration() {
 	spew.Dump(internal.State)
 	eventsMap := make(map[int][]internal.IDMEvent)
 	newBandwidth := int64(3 * 1024 * 1024)
-	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, &newBandwidth, nil, "", q.MaxInProgressCount)}
+	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, &newBandwidth, nil, "", q.MaxInProgressCount, q.MaxRetriesCount)}
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 	internal.UpdaterWithCount(250, eventsMap)
 }
@@ -192,7 +192,7 @@ func t5ActiveInterval() {
 	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, nil, &types.TimeInterval{
 		Start: now.Add(20 * time.Second),
 		End:   now.Add(20 * time.Minute),
-	}, "", q.MaxInProgressCount)}
+	}, "", q.MaxInProgressCount, q.MaxRetriesCount)}
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 	internal.UpdaterWithCount(250, eventsMap)
 }
@@ -348,7 +348,7 @@ func t10TestingQueueDestination() {
 	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, nil, &types.TimeInterval{
 		Start: now.Add(20 * time.Second),
 		End:   now.Add(20 * time.Minute),
-	}, "C:/Users/Asus/Documents/GitHub/project-1/temp", q.MaxInProgressCount)}
+	}, "C:/Users/Asus/Documents/GitHub/project-1/temp", q.MaxInProgressCount, q.MaxRetriesCount)}
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 	internal.UpdaterWithCount(250, eventsMap)
 
@@ -388,7 +388,7 @@ func t11ChangeMaxInProgress() {
 	eventsMap[10] = []internal.IDMEvent{internal.NewModifyQueueEvent(q.Id, nil, &types.TimeInterval{
 		Start: now.Add(20 * time.Second),
 		End:   now.Add(20 * time.Minute),
-	}, "C:/Users/Asus/Documents/GitHub/project-1/temp", 1)}
+	}, "C:/Users/Asus/Documents/GitHub/project-1/temp", 1, q.MaxRetriesCount)}
 	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
 	internal.UpdaterWithCount(250, eventsMap)
 

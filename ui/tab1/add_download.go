@@ -3,6 +3,7 @@ package tab1
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"go-idm/internal"
 
@@ -10,13 +11,27 @@ import (
 	"github.com/rivo/tview"
 )
 
-var staticQueues = []string{"Default", "Queue1", "Queue2"}
+var staticQueues = []string{}
 
 type Tab1 struct {
 	Form *tview.Form
 }
 
+func intSliceToStringSlice(intSlice []int) []string {
+	// Create a new slice to hold the string values
+	stringSlice := make([]string, len(intSlice))
+
+	// Iterate over the integer slice and convert each integer to a string
+	for i, num := range intSlice {
+		stringSlice[i] = strconv.Itoa(num)
+	}
+
+	return stringSlice
+}
+
+
 func NewTab1() *Tab1 {
+	staticQueues = intSliceToStringSlice(internal.GetQueueIds())
 	form := tview.NewForm().
 		AddInputField("URL", "", 40, nil, nil).
 		AddDropDown("Queue", staticQueues, 0, nil).
@@ -51,6 +66,7 @@ func okButtonHandler(form *tview.Form) func() {
 			url := form.GetFormItemByLabel("URL").(*tview.InputField).GetText()
 			queueIndex, _ := form.GetFormItemByLabel("Queue").(*tview.DropDown).GetCurrentOption()
 			queueName := staticQueues[queueIndex]
+			queueId, _ := strconv.Atoi(queueName)
 			outputFile := form.GetFormItemByLabel("Output File").(*tview.InputField).GetText()
 			slog.Info(fmt.Sprintf("Submitted Data: url %s queue %s outputFile %s", url, queueName, outputFile))
 
@@ -58,7 +74,7 @@ func okButtonHandler(form *tview.Form) func() {
 				nil,
 				url,
 				outputFile,
-				0,
+				queueId,
 			)
 			internal.LogicIn <- e
 
