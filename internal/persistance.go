@@ -39,17 +39,19 @@ func LoadState(stateAddress string) (*AppState, error) {
 		return state, err
 	}
 	defer file.Close()
-	// Create a decoder
 	decoder := json.NewDecoder(file)
-	if error := decoder.Decode(state); error != nil {
-		slog.Error("Error Creating the file")
-		return state, error
+	if err := decoder.Decode(&state); err != nil {
+		fmt.Println("Error decoding JSON:", err)
+		return state, err
 	}
 
 	return state, nil
 }
+
+// TODO : I think the state should be locked for this , but locking caused errors before
 func SaveFile() {
-	State.mu.Lock()
+	//State.mu.Lock()
+	//defer State.mu.Unlock()
 	jsonData, err := json.MarshalIndent(State, "", "  ")
 	if err != nil {
 		fmt.Println("Error encoding JSON:", err)
@@ -64,5 +66,5 @@ func SaveFile() {
 	}
 
 	fmt.Println("JSON file overwritten successfully!")
-	State.mu.Unlock()
+	//State.mu.Unlock()
 }

@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"sync"
 
 	// "net/url"
 	"os"
@@ -16,8 +15,8 @@ import (
 )
 
 type DownloadTicker struct {
-	Ticker   *time.Ticker
-	TickerMu sync.Mutex
+	Ticker *time.Ticker
+	//	TickerMu sync.Mutex
 }
 
 type DownloadManager struct {
@@ -41,7 +40,7 @@ type DMEvent struct {
 }
 
 type ReconfigDMData struct {
-	downloadId      int
+	downloadId int
 }
 
 type TerminateDMData struct {
@@ -52,7 +51,7 @@ func NewReconfigDMEvent(downloadId int) DMEvent {
 	return DMEvent{
 		EType: Reconfig,
 		Data: ReconfigDMData{
-			downloadId:      downloadId,
+			downloadId: downloadId,
 		},
 	}
 }
@@ -159,8 +158,7 @@ type TerminateCMData struct {
 func NewReconfigCMEvent() CMEvent {
 	return CMEvent{
 		EType: reconfig,
-		Data: ReconfigCMData{
-		},
+		Data:  ReconfigCMData{},
 	}
 }
 
@@ -327,32 +325,69 @@ func AsyncStartDownload(download types.Download, queue types.Queue,
 		// Starting Chunk Managers
 		chInCM = make([]chan CMEvent, 0)
 		chOutCM = make([]chan CMREvent, 0)
+		//TODO : this should be changes to something else , checking the first offset is not quite right.
+		if acceptsRanges && download.CurrnetDownloadOffsets[0] != 0 {
+			for i := 0; i < numChunks; i++ {
+				fmt.Println("Running here ")
 
-		for i := 0; i < numChunks; i++ {
-			start := int64(i) * chunkSize
-			end := start + chunkSize - 1
-			if i == numChunks-1 {
-				end = fileSize - 1 // Last chunk gets the remaining bytes
+				index := int64(i) * chunkSize
+				end := index + chunkSize - 1
+				start := int64(download.CurrnetDownloadOffsets[i]) + index
+				if i == numChunks-1 {
+					end = fileSize - 1 // Last chunk gets the remaining bytes
+				}
+
+				inputCh := make(chan CMEvent)
+				outputCh := make(chan CMREvent)
+				chInCM = append(chInCM, inputCh)
+				chOutCM = append(chOutCM, outputCh)
+
+				// Create a temporary file for this chunk
+				tempFile, err := os.OpenFile(download.TempFileAddresses[i], os.O_RDWR, 0666)
+				//	tempFile, err := os.Open(download.TempFileAddresses[i])
+				if err != nil {
+					DMStatus = "failed"
+					slog.Error(fmt.Sprintf("failed to open temp file: %v", err))
+					return
+				}
+				tempFiles[i] = tempFile
+				tempFilePaths[i] = tempFile.Name()
+				go downloadChunk(download.Url, start, end, download.CurrnetDownloadOffsets[i], acceptsRanges, tempFile, i, downloadTicker, inputCh, outputCh)
 			}
+			doneChannels = make([]bool, numChunks)
+			ticker = time.NewTicker(500 * time.Millisecond)
 
-			inputCh := make(chan CMEvent)
-			outputCh := make(chan CMREvent)
-			chInCM = append(chInCM, inputCh)
-			chOutCM = append(chOutCM, outputCh)
+		} else {
+			for i := 0; i < numChunks; i++ {
+				start := int64(i) * chunkSize
+				end := start + chunkSize - 1
+				if i == numChunks-1 {
+					end = fileSize - 1 // Last chunk gets the remaining bytes
+				}
 
-			// Create a temporary file for this chunk
-			tempFile, err := os.CreateTemp("", fmt.Sprintf("chunk-%d-", i))
-			if err != nil {
-				DMStatus = "failed"
-				slog.Error(fmt.Sprintf("failed to create temp file: %v", err))
-				return
+				inputCh := make(chan CMEvent)
+				outputCh := make(chan CMREvent)
+				chInCM = append(chInCM, inputCh)
+				chOutCM = append(chOutCM, outputCh)
+
+				// Create a temporary file for this chunk
+				//	filePath := filepath.Join("C:/Users/Asus/Documents/GitHub/project-1/temp", fmt.Sprintf("chunk-%d-", i))
+				//	tempFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0666)
+				//	tempFile, err := os.Create(filePath)
+				tempFile, err := os.CreateTemp("", fmt.Sprintf("chunk-%d-", i))
+				if err != nil {
+					DMStatus = "failed"
+					slog.Error(fmt.Sprintf("failed to create temp file: %v", err))
+					return
+				}
+				tempFiles[i] = tempFile
+				tempFilePaths[i] = tempFile.Name()
+				go downloadChunk(download.Url, start, end, 0, acceptsRanges, tempFile, i, downloadTicker, inputCh, outputCh)
 			}
-			tempFiles[i] = tempFile
-			tempFilePaths[i] = tempFile.Name()
-			go downloadChunk(download.Url, start, end, acceptsRanges, tempFile, i, downloadTicker, inputCh, outputCh)
+			doneChannels = make([]bool, numChunks)
+			ticker = time.NewTicker(500 * time.Millisecond)
 		}
-		doneChannels = make([]bool, numChunks)
-		ticker = time.NewTicker(500 * time.Millisecond)
+
 	}
 
 	initFunc()
@@ -421,6 +456,9 @@ func AsyncStartDownload(download types.Download, queue types.Queue,
 		}
 	}()
 	// Listen for incomming messages
+	for i, _ := range tempFiles {
+		defer tempFiles[i].Close()
+	}
 	for {
 		select {
 		case event := <-chIn:
@@ -465,7 +503,7 @@ func AsyncStartDownload(download types.Download, queue types.Queue,
 // When downloaded or terminated, the Download thread can be stopped.
 // When inProgress, Download loop should continue.
 // When paused or failed, wait until the status is changed and download can be continued.
-func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *os.File,
+func downloadChunk(url string, start, end int64, lastTimeIndex int, acceptsRanges bool, tempFile *os.File,
 	chunkID int, downloadTicker *DownloadTicker,
 	chIn chan CMEvent, chOut chan CMREvent) {
 	CMStatus := "inProgress"
@@ -509,7 +547,6 @@ func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *o
 	}
 
 	initFunc()
-
 	go func() {
 		for CMStatus != "downloaded" && CMStatus != "terminated" {
 			for CMStatus != "inProgress" {
@@ -519,9 +556,9 @@ func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *o
 				return
 			}
 			// TODO: ticker is thread safe , lock unneccessary
-			downloadTicker.TickerMu.Lock()
+			//	downloadTicker.TickerMu.Lock()
 			<-downloadTicker.Ticker.C
-			downloadTicker.TickerMu.Unlock()
+			//downloadTicker.TickerMu.Unlock()
 
 			n, err := reader.Read(buffer)
 			if err != nil && err != io.EOF {
@@ -571,7 +608,7 @@ func downloadChunk(url string, start, end int64, acceptsRanges bool, tempFile *o
 				go func() {
 					switch CMStatus {
 					case "inProgress":
-						chOut <- NewInProgressCMREvent(chunkID, totalBytesRead)
+						chOut <- NewInProgressCMREvent(chunkID, totalBytesRead+lastTimeIndex)
 					case "downloaded":
 						chOut <- NewDownloadedCMREvent(chunkID)
 					case "stopped":
