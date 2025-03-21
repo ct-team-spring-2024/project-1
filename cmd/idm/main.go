@@ -301,7 +301,7 @@ func t9ManyDownloadsAndPauseResumes() {
 		e2 := internal.NewAddDownloadEvent(
 			&dId,
 			fmt.Sprintf("http://127.0.0.1:8080/file%d.bin", i+1),
-			fmt.Sprintf("downloaded%d.bin", i+1),
+			fmt.Sprintf("downloaded.bin"),
 			qId,
 		)
 		events = append(events, e2)
@@ -324,5 +324,5 @@ func main() {
 	// t6TestingPauseAndResume()
 	// t7MaxRetry()
 	// t8Persistance()
-	// t9ManyDownloadsAndPauseResumes()
+	t9ManyDownloadsAndPauseResumes()
 }

@@ -23,9 +23,13 @@ type AppState struct {
 
 var State *AppState
 
+var LogicIn chan IDMEvent = make(chan IDMEvent)
+
 func InitState() {
 	var err error
-	State, err = LoadState("C:/Users/Asus/Documents/GitHub/project-1/cmd/idm/data.json")
+	State, err = LoadState("./data.json")
+	// State, err = LoadState("C:/Users/Asus/Documents/GitHub/project-1/cmd/idm/data.json")
+
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -144,7 +148,7 @@ func findInProgressCandidates() []types.Download {
 func UpdaterWithCount(step int, events map[int][]IDMEvent) {
 	for i := 0; i < step; i++ {
 		// Some Queue/Download are added
-		updateState(events[i])
+		UpdateState(events[i])
 		time.Sleep(1 * time.Second)
 		if i%5 == 0 {
 			slog.Info(fmt.Sprintf("================================================================================"))
@@ -154,7 +158,7 @@ func UpdaterWithCount(step int, events map[int][]IDMEvent) {
 	}
 }
 
-func updateState(events []IDMEvent) {
+func UpdateState(events []IDMEvent) {
 	// 1. Process new events sent by user.
 	//    Send the new configuration using the chIn.
 	SaveFile()
@@ -163,6 +167,7 @@ func updateState(events []IDMEvent) {
 		switch e.EType {
 		case AddQueueEvent:
 			data := e.Data.(AddQueueEventData)
+			slog.Info(fmt.Sprintf("flag 1 => %+v", data))
 			queue := types.Queue{
 				Id: data.QueueId,
 				DownloadIds: make([]int, 0),
@@ -173,6 +178,7 @@ func updateState(events []IDMEvent) {
 				ActiveInterval: data.ActiveInterval,
 				MaxBandwidth: data.MaxBandwidth,
 			}
+			slog.Info(fmt.Sprintf("flag 2 => %+v", queue))
 			AddQueue(queue)
 		case ModifyQueueEvent:
 			data := e.Data.(ModifyQueueEventData)

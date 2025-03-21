@@ -1,7 +1,10 @@
 package tab1
 
 import (
+	"fmt"
 	"log/slog"
+
+	"go-idm/internal"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -49,11 +52,15 @@ func okButtonHandler(form *tview.Form) func() {
 			queueIndex, _ := form.GetFormItemByLabel("Queue").(*tview.DropDown).GetCurrentOption()
 			queueName := staticQueues[queueIndex]
 			outputFile := form.GetFormItemByLabel("Output File").(*tview.InputField).GetText()
-			slog.Info("Submitted Data",
-				"url", url,
-				"queue", queueName,
-				"output_file", outputFile,
+			slog.Info(fmt.Sprintf("Submitted Data: url %s queue %s outputFile %s", url, queueName, outputFile))
+
+			e := internal.NewAddDownloadEvent(
+				nil,
+				url,
+				outputFile,
+				0,
 			)
+			internal.LogicIn <- e
 
 			form.GetFormItemByLabel("URL").(*tview.InputField).SetText("")
 			form.GetFormItemByLabel("Queue").(*tview.DropDown).SetCurrentOption(0)

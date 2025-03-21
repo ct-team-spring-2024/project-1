@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"fmt"
+	"log/slog"
 	"go-idm/types"
 	"go-idm/pkg/network"
 	"time"
@@ -8,6 +10,7 @@ import (
 
 func AddQueue(queue types.Queue) {
 	State.Queues[queue.Id] = &queue
+	slog.Info(fmt.Sprintf("shash => %+v", queue))
 
 	State.downloadTickers[queue.Id] = &network.DownloadTicker{
 		Ticker: time.NewTicker(time.Second / time.Duration(queue.MaxBandwidth/network.BufferSizeInBytes)),

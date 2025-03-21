@@ -1,9 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
-	"time"
 	"os"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -15,8 +16,6 @@ import (
 )
 
 
-var uiOut chan internal.IDMEvent = make(chan internal.IDMEvent, 1000)
-
 func main() {
 	// Logging
 	logFile, err := os.OpenFile("out.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -26,7 +25,7 @@ func main() {
 	}
 	defer logFile.Close()
 	opts := &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 	}
 	handler := slog.NewTextHandler(logFile, opts)
 	logger := slog.New(handler)
@@ -36,6 +35,28 @@ func main() {
 	// Setup Logic
 	internal.InitState()
 
+	go func() {
+		var eventBuffer []internal.IDMEvent
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case event := <-internal.LogicIn:
+				slog.Info("JAN gOOZ?")
+				eventBuffer = append(eventBuffer, event)
+			case <-ticker.C:
+				if len(eventBuffer) > 0 {
+					slog.Info("JAN?")
+					internal.UpdateState(eventBuffer)
+					slog.Info(fmt.Sprintf("eventBuffer KIR KHAR %+v %v", eventBuffer, eventBuffer[0]))
+					eventBuffer = nil
+				}
+			}
+		}
+		slog.Info("DEAD")
+	}()
+
 	// UI
 	app := tview.NewApplication()
 
@@ -43,8 +64,19 @@ func main() {
 	setGlobalKeyBindings(layout, pages, app)
 	go autoRefresh(t2, app)
 
+	defer func() {
+		if err := recover(); err != nil {
+			slog.Error(fmt.Sprintf("Panic occurred: %v", err))
+			app.Stop() // Ensure the terminal is reset
+		}
+	}()
+
+	// Your application logic here
 	if err := app.SetRoot(layout, true).Run(); err != nil {
-		slog.Error("123")
+		slog.Error(fmt.Sprintf("Application error: %v", err))
+	}
+	if err := app.SetRoot(layout, true).Run(); err != nil {
+		panic(err)
 	}
 }
 

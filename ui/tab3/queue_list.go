@@ -4,6 +4,12 @@ import (
 	"fmt"
 	"strconv"
 
+	"log/slog"
+	"time"
+
+	"go-idm/internal"
+	"go-idm/types"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -125,8 +131,22 @@ func (tab *Tab3) showNewQueueForm() {
 				ActiveTimeWindow: timeWindow,
 				MaxRetry:         maxRetry,
 			}
-			tab.Queues = append(tab.Queues, newQueue)
-			tab.refreshTable()
+			slog.Info(fmt.Sprintf("%v", newQueue))
+			now := time.Now()
+			e := internal.NewAddQueueEvent(
+				nil,
+				maxConcurrent,
+				maxRetry,
+				folder,
+				types.TimeInterval{
+					Start: now.Add(-10 * time.Minute),
+					End:   now.Add(10 * time.Minute),
+				},
+				int64(bandwidth),
+			)
+			slog.Info(fmt.Sprintf("MY EVENT %v", e))
+			internal.LogicIn <- e
+
 			tab.Pages.RemovePage("modal")
 		}).
 		AddButton("Cancel", func() {
