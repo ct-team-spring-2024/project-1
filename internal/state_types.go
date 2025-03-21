@@ -1,8 +1,9 @@
 package internal
 
 import (
-	"github.com/google/uuid"
 	"go-idm/types"
+
+	"github.com/google/uuid"
 )
 
 type IDMEType int
@@ -37,6 +38,7 @@ type ModifyQueueEventData struct {
 	newActiveInterval   *types.TimeInterval
 	newQueueDestination string
 	newMaxinProgressCnt int
+	maxRetriesCount     int
 }
 
 type AddDownloadEventData struct {
@@ -91,7 +93,7 @@ func NewAddQueueEvent(
 	}
 }
 
-func NewModifyQueueEvent(queueId int, newMaxBandwidth *int64, newActiveInterval *types.TimeInterval, newQueueDestination string, maxInProgressCount int) IDMEvent {
+func NewModifyQueueEvent(queueId int, newMaxBandwidth *int64, newActiveInterval *types.TimeInterval, newQueueDestination string, maxInProgressCount int, newMaxRetryCnt int) IDMEvent {
 	return IDMEvent{
 		EType: ModifyQueueEvent,
 		Data: ModifyQueueEventData{
@@ -100,6 +102,7 @@ func NewModifyQueueEvent(queueId int, newMaxBandwidth *int64, newActiveInterval 
 			newActiveInterval:   newActiveInterval,
 			newQueueDestination: newQueueDestination,
 			newMaxinProgressCnt: maxInProgressCount,
+			maxRetriesCount:     newMaxRetryCnt,
 		},
 	}
 }

@@ -215,6 +215,9 @@ func updateState(events []IDMEvent) {
 						State.downloadManagers[d.Id].EventsChan <- network.NewModifyQueueEvent(d.Id, data.newQueueDestination)
 					}
 				}
+			}
+			if data.maxRetriesCount >= 0 && queue.MaxRetriesCount != data.maxRetriesCount {
+				queue.MaxRetriesCount = data.maxRetriesCount
 
 			}
 		case AddDownloadEvent:
@@ -290,7 +293,7 @@ func updateState(events []IDMEvent) {
 					data := responseEvent.Data.(network.InProgressDMRData)
 					slog.Debug(fmt.Sprintf("DMR : InProgress %d", d.Id))
 					updateDMChunksByteOffset(d.Id, data.CurrentChunksByteOffset)
-					fmt.Println(data.CurrentChunksByteOffset[0])
+				//	fmt.Println(data.CurrentChunksByteOffset[0])
 				case network.SetTempFileAddress:
 					data := responseEvent.Data.(network.SetTempFileAddressDMRData)
 					updateTempFileAddress(d.Id, data.TempFileAddresses)
