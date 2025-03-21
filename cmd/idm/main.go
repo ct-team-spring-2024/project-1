@@ -12,6 +12,18 @@ import (
 	"go-idm/types"
 )
 
+func getOneKey[K comparable, V any](m map[K]V) (K, bool) {
+	// Iterate over the map to fetch the first key
+	for key := range m {
+		return key, true // Return the first key and true to indicate success
+	}
+
+	// If the map is empty, return the zero value of K and false
+	var zeroKey K
+	return zeroKey, false
+}
+
+
 // same as two. DELETE
 func t1() {
 	internal.InitState()
@@ -200,11 +212,11 @@ func t6TestingPauseAndResume() {
 		Start: now.Add(-10 * time.Minute),
 		End:   now.Add(10 * time.Minute),
 	}
-	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
-	q.Destination = "./files"
+	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	//q.Destination = "./files"
 	q.MaxBandwidth = 9 * 1024 * 1024
 	internal.AddQueue(q)
-	d1.Filename = "largefile.bin"
+	d1.Filename = "download.bin"
 	// d1.Url = "https://dl33.deserver.top/www2/serial/Daredevil.Born.Again/s01/Daredevil.Born.Again.S01E04.REPACK.720p.WEB-DL.SoftSub.DigiMoviez.mkv?md5=8pKAOCubgbXPCqJFKHnCXw&expires=1742751594"
 	d1.Url = "http://127.0.0.1:8080"
 	internal.AddDownload(d1, q.Id)
@@ -218,7 +230,6 @@ func t6TestingPauseAndResume() {
 
 	internal.UpdaterWithCount(2000, eventsMap)
 }
-
 
 // We set the max retry at 20
 // at somewhere around second 10, we will start the server(manually).
@@ -242,8 +253,8 @@ func t7MaxRetry() {
 		Start: now.Add(-10 * time.Minute),
 		End:   now.Add(10 * time.Minute),
 	}
-	// q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
-	q.Destination = "./files"
+	q.Destination = "C:/Users/Asus/Documents/GitHub/project-1/files"
+	//q.Destination = "./files"
 	q.MaxBandwidth = 9 * 1024 * 1024
 	internal.AddQueue(q)
 	d1.Filename = "downloaded.bin"
@@ -256,6 +267,54 @@ func t7MaxRetry() {
 	internal.UpdaterWithCount(250, eventsMap)
 }
 
+func t8Persistance() {
+	internal.InitState()
+	eventsMap := make(map[int][]internal.IDMEvent)
+	internal.UpdaterWithCount(250, eventsMap)
+}
+
+// To make it more real, we will only use the IDMEvents (even for creating queues and downloads)
+func t9ManyDownloadsAndPauseResumes() {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	internal.InitState()
+	now := time.Now()
+	qId := 0
+	e1 := internal.NewAddQueueEvent(
+		&qId,
+		1,
+		0,
+		"./files",
+		types.TimeInterval{
+			Start: now.Add(-10 * time.Minute),
+			End:   now.Add(10 * time.Minute),
+		},
+		30 * 1024 * 1024)
+	events := []internal.IDMEvent{e1}
+	for i := 0; i < 10; i++ {
+		dId := i
+		e2 := internal.NewAddDownloadEvent(
+			&dId,
+			fmt.Sprintf("http://127.0.0.1:8080/file%d.bin", i+1),
+			fmt.Sprintf("downloaded%d.bin", i+1),
+			qId,
+		)
+		events = append(events, e2)
+	}
+	slog.Info("Initial State =>")
+	spew.Dump(internal.State)
+	eventsMap := make(map[int][]internal.IDMEvent)
+	eventsMap[0] = events
+	slog.Info(fmt.Sprintf("GOOZ %+v", eventsMap))
+	internal.UpdaterWithCount(100, eventsMap)
+	slog.Info("ENDED")
+	spew.Dump(internal.State)
+}
 
 func main() {
 	// t2()
@@ -263,5 +322,7 @@ func main() {
 	// t4ChangingConfiguration()
 	// t5ActiveInterval()
 	// t6TestingPauseAndResume()
-	t7MaxRetry()
+	// t7MaxRetry()
+	// t8Persistance()
+	// t9ManyDownloadsAndPauseResumes()
 }
