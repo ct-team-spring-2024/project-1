@@ -3,6 +3,8 @@ package internal
 import (
 	"fmt"
 	"log/slog"
+	"os"
+
 	//	"os"
 	"sync"
 	"time"
@@ -44,7 +46,7 @@ func InitState() {
 	// Since these two will be nil at first , we must recreate them
 	State.downloadManagers = make(map[int]*network.DownloadManager)
 	State.downloadTickers = make(map[int]*network.DownloadTicker)
-	ResumeDownloads()
+	//	ResumeDownloads()
 
 }
 
@@ -164,14 +166,14 @@ func updateState(events []IDMEvent) {
 		case AddQueueEvent:
 			data := e.Data.(AddQueueEventData)
 			queue := types.Queue{
-				Id: data.QueueId,
-				DownloadIds: make([]int, 0),
-				MaxInProgressCount: data.MaxInProgressCount,
+				Id:                     data.QueueId,
+				DownloadIds:            make([]int, 0),
+				MaxInProgressCount:     data.MaxInProgressCount,
 				CurrentInProgressCount: 0,
-				MaxRetriesCount: data.MaxRetriesCount,
-				Destination: data.Destination,
-				ActiveInterval: data.ActiveInterval,
-				MaxBandwidth: data.MaxBandwidth,
+				MaxRetriesCount:        data.MaxRetriesCount,
+				Destination:            data.Destination,
+				ActiveInterval:         data.ActiveInterval,
+				MaxBandwidth:           data.MaxBandwidth,
 			}
 			AddQueue(queue)
 		case ModifyQueueEvent:
@@ -181,7 +183,9 @@ func updateState(events []IDMEvent) {
 				//	State.downloadTickers[data.queueId].TickerMu.Lock()
 				State.mu.Lock()
 				State.downloadTickers[data.queueId].Ticker.Stop()
-				State.downloadTickers[data.queueId].Ticker = time.NewTicker(time.Second /
+				// State.downloadTickers[data.queueId].Ticker = time.NewTicker(time.Second /
+				// 	time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
+				State.downloadTickers[data.queueId].Ticker.Reset(time.Second /
 					time.Duration(*data.newMaxBandwidth/network.BufferSizeInBytes))
 				//	State.downloadTickers[data.queueId].TickerMu.Unlock()
 				State.mu.Unlock()
@@ -192,14 +196,14 @@ func updateState(events []IDMEvent) {
 		case AddDownloadEvent:
 			data := e.Data.(AddDownloadEventData)
 			download := types.Download{
-				Id: data.Id,
-				Url: data.Url,
-				Filename: data.Filename,
-				Status: types.Created,
-				CurrentRetriesCnt: 0,
-				QueueId: data.QueueId,
+				Id:                     data.Id,
+				Url:                    data.Url,
+				Filename:               data.Filename,
+				Status:                 types.Created,
+				CurrentRetriesCnt:      0,
+				QueueId:                data.QueueId,
 				CurrnetDownloadOffsets: make(map[int]int),
-				TempFileAddresses: make(map[int]string),
+				TempFileAddresses:      make(map[int]string),
 			}
 			AddDownload(download, download.QueueId)
 		case PauseDownloadEvent:
@@ -216,6 +220,12 @@ func updateState(events []IDMEvent) {
 			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Resume}
 
 		case DeleteDownloadEvent:
+			data := e.Data.(DeleteDownloadEventData)
+			id := data.DownloadID
+			updateDownloadStatus(id, types.Failed)
+			fmt.Println("finished updating status")
+			State.downloadManagers[id].EventsChan <- network.DMEvent{EType: network.Terminatee}
+			DeleteDownloadTempFiles(id)
 		}
 	}
 	// 2. Fire up new candidates
@@ -339,6 +349,17 @@ func updateDMChunksByteOffset(downloadId int, currentChunksByteOffset map[int]in
 	State.Downloads[downloadId].CurrnetDownloadOffsets = currentChunksByteOffset
 
 	State.mu.Unlock()
+}
+func DeleteDownloadTempFiles(downloadId int) {
+	d := State.Downloads[downloadId]
+	for _, v := range d.TempFileAddresses {
+		err := os.Remove(v)
+		if err != nil {
+			slog.Error("Error deleting temp files for download")
+		}
+
+	}
+
 }
 func ResumeDownloads() {
 	State.mu.Lock()

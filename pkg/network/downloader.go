@@ -558,6 +558,7 @@ func downloadChunk(url string, start, end int64, lastTimeIndex int, acceptsRange
 			// TODO: ticker is thread safe , lock unneccessary
 			//	downloadTicker.TickerMu.Lock()
 			<-downloadTicker.Ticker.C
+
 			//downloadTicker.TickerMu.Unlock()
 
 			n, err := reader.Read(buffer)
