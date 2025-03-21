@@ -68,6 +68,26 @@ func GetQueueIds() []int {
 	return queueIds
 }
 
+func GetDownloads() []types.Download {
+	if State == nil || State.Downloads == nil {
+		return []types.Download{} // Return an empty slice if State or Downloads is nil
+	}
+
+	State.mu.Lock()
+
+	var downloads []types.Download
+
+	for _, downloadPtr := range State.Downloads {
+		if downloadPtr != nil { // Ensure the pointer is not nil
+			downloads = append(downloads, *downloadPtr) // Dereference the pointer
+		}
+	}
+
+	State.mu.Unlock()
+
+	return downloads
+}
+
 func checkToBeInProgress(id int) bool {
 
 	result := false

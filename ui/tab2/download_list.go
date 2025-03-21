@@ -1,24 +1,15 @@
 package tab2
 
 import (
-	"fmt"
+	"go-idm/internal"
+	"go-idm/types"
+	"strconv"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-type Download struct {
-	URL       string
-	QueueName string
-	Status    string
-	Progress  float64
-	Speed     float64
-}
-
-var staticDownloads = []Download{
-	{URL: "http://example.com/file1", QueueName: "Default", Status: "Completed", Progress: 100, Speed: 500},
-	{URL: "http://example.com/file2", QueueName: "Default", Status: "Downloading", Progress: 50, Speed: 250},
-}
+var staticDownloads []types.Download
 
 type Tab2 struct {
 	Table  *tview.Table
@@ -27,6 +18,7 @@ type Tab2 struct {
 }
 
 func NewTab2() *Tab2 {
+	staticDownloads := internal.GetDownloads()
 	table := createDownloadTable(staticDownloads)
 	setDownloadInputCapture(table)
 	footer := createFooter()
@@ -40,20 +32,24 @@ func NewTab2() *Tab2 {
 	}
 }
 
-func createDownloadTable(downloads []Download) *tview.Table {
+func createDownloadTable(downloads []types.Download) *tview.Table {
 	table := tview.NewTable().SetBorders(true)
 	headers := []string{"URL", "Queue", "Status", "Progress", "Speed (KB/s)"}
 	for i, header := range headers {
 		table.SetCell(0, i, tview.NewTableCell(header).SetSelectable(false))
 	}
 	table.SetSelectable(true, false)
+	f := func(x int) string {
+		result := strconv.Itoa(x)
+		return result
+	}
 	for i, d := range downloads {
 		row := i + 1
-		table.SetCell(row, 0, tview.NewTableCell(d.URL))
-		table.SetCell(row, 1, tview.NewTableCell(d.QueueName))
-		table.SetCell(row, 2, tview.NewTableCell(d.Status))
-		table.SetCell(row, 3, tview.NewTableCell(fmt.Sprintf("%.0f%%", d.Progress)))
-		table.SetCell(row, 4, tview.NewTableCell(fmt.Sprintf("%.2f", d.Speed)))
+		table.SetCell(row, 0, tview.NewTableCell(d.Url))
+		table.SetCell(row, 1, tview.NewTableCell(f(d.QueueId)))
+		table.SetCell(row, 2, tview.NewTableCell(f(int(d.Status))))
+		table.SetCell(row, 3, tview.NewTableCell("UNKNOWN"))
+		table.SetCell(row, 4, tview.NewTableCell("UNKNONW"))
 	}
 	return table
 }
